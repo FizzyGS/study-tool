@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Pause &amp; Solve</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --blue: #0cc0df; --red: #e00000; --soft: #f2f2f2; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #fff; color: #000; font-family: "Open Sans", Arial, sans-serif; font-size: 18px; line-height: 1.6; }
+  a { color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right)) 140px max(16px, env(safe-area-inset-left)); }
+  .narrow { max-width: 760px; margin: 0 auto; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .top a { font-weight: 800; text-decoration: none; font-size: 20px; }
+  h1 { font-size: clamp(34px, 6vw, 68px); font-weight: 800; line-height: 1.1; margin: 0 0 10px; text-align: center; overflow-wrap: anywhere; }
+  .sub { text-align: center; margin: 0 0 28px; }
+  button { font: inherit; font-weight: 800; background: #fff; color: #000; border: 3px solid #000; padding: 10px 18px; cursor: pointer; min-height: 48px; }
+  button:hover { background: #000; color: #fff; }
+  button.blue { background: var(--blue); }
+  button.blue:hover { background: #000; }
+  button.on { background: #000; color: #fff; }
+  button.small { padding: 4px 12px; min-height: 36px; font-size: 15px; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 4px solid var(--blue); outline-offset: 2px; }
+  input, textarea { font: inherit; font-size: 17px; border: 3px solid #000; padding: 10px; width: 100%; background: #fff; color: #000; border-radius: 0; }
+  textarea { resize: vertical; }
+  label { font-weight: 800; display: block; margin: 16px 0 6px; }
+  .note { font-size: 15px; }
+  .err { color: var(--red); font-weight: 600; }
+  .hide { display: none !important; }
+
+  /* home */
+  .make { border: 3px solid #000; padding: 20px; }
+  .make .go { margin-top: 16px; width: 100%; font-size: 20px; }
+  .status p { margin: 8px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+  h2.mine { font-size: 28px; font-weight: 800; margin: 44px 0 8px; }
+  .lib .item { display: flex; align-items: center; gap: 12px; border-top: 3px solid #000; padding: 16px 0; }
+  .lib .item:last-child { border-bottom: 3px solid #000; }
+  .lib a { flex: 1; text-decoration: none; min-width: 0; }
+  .lib a:hover .t { text-decoration: underline; }
+  .lib .t { font-size: 22px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+  .lib .m { font-size: 15px; }
+
+  /* lesson */
+  .modes { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; }
+  .sec { border-top: 3px solid #000; padding: 24px 0; display: grid; gap: 20px 40px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 920px) { .sec { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); } }
+  .time { font-size: 15px; font-weight: 600; }
+  .sec h2 { font-size: 28px; font-weight: 800; margin: 2px 0 10px; line-height: 1.2; }
+  .sec p { margin: 0 0 14px; }
+  .said { margin-top: 6px; }
+  .said summary, .solved summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
+  .said blockquote { margin: 8px 0 0; padding: 4px 0 4px 14px; border-left: 6px solid var(--blue); }
+  .side h3 { font-size: 15px; font-weight: 800; letter-spacing: 1px; margin: 0 0 6px; }
+  .side ul { margin: 0 0 18px; padding-left: 20px; }
+  .side li { margin: 6px 0; }
+
+  .q { background: var(--blue); padding: 24px; margin: 8px 0 32px; }
+  .q .tag { font-weight: 800; font-size: 15px; letter-spacing: 1px; }
+  .q h2 { font-size: 30px; font-weight: 800; margin: 2px 0 12px; line-height: 1.2; }
+  .q img { display: block; width: 100%; max-width: 860px; height: auto; border: 3px solid #000; background: #fff; }
+  .q .text { font-size: 20px; font-weight: 600; margin: 14px 0; }
+  .board { background: #fff; border: 3px solid #000; padding: 12px 16px; margin: 12px 0; }
+  .board b { display: block; font-size: 15px; letter-spacing: 1px; }
+  .parts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); align-items: start; }
+  .part { background: #fff; border: 3px solid #000; padding: 16px; min-width: 0; }
+  .part .prompt { font-weight: 800; font-size: 20px; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .hint { border-left: 6px solid var(--blue); padding: 4px 0 4px 12px; margin: 12px 0 0; }
+  .work { margin-top: 14px; border-top: 3px solid #000; padding-top: 12px; }
+  .work ol { margin: 0 0 12px; padding-left: 24px; }
+  .work li { margin: 6px 0; }
+  .answer { font-weight: 800; font-size: 22px; overflow-wrap: anywhere; }
+  .solved { margin-top: 12px; }
+  .pair { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); margin-top: 12px; align-items: start; }
+  @media (min-width: 820px) { .pair { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+  .pair .board, .solved .board { margin: 0; }
+  .solved > div { margin-top: 12px; }
+  .board ol, .board ul { margin: 4px 0 0; padding-left: 22px; }
+  .board p { margin: 4px 0; }
+  .practice { border-top: 3px solid #000; margin-top: 14px; padding-top: 12px; }
+  .practice b { font-size: 15px; letter-spacing: 1px; }
+  .score { margin-top: 12px; }
+  .score .got { color: #006b29; font-weight: 800; }
+  .score .miss { color: var(--red); font-weight: 800; }
+  @media (max-width: 600px) {
+    body { font-size: 17px; }
+    .q { padding: 16px; margin-left: -16px; margin-right: -16px; }
+    .q h2 { font-size: 24px; } .sec h2 { font-size: 24px; }
+  }
+
+  /* AI side panel + settings */
+  #aiBtn { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 5; }
+  #ai { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); background: #fff; border-left: 3px solid #000; display: flex; flex-direction: column; z-index: 10; }
+  #ai header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 3px solid #000; font-weight: 800; }
+  #msgs { flex: 1; overflow-y: auto; padding: 16px; font-size: 16px; }
+  .msg { margin: 0 0 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.me { font-weight: 800; }
+  #ai form { display: flex; gap: 8px; padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); border-top: 3px solid #000; }
+  #ai textarea { flex: 1; min-width: 0; resize: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><a href="#">Pause &amp; Solve</a><span id="progress"></span></div>
+  <main id="app"></main>
+</div>
+
+<button id="aiBtn" class="blue">Ask AI</button>
+<aside id="ai" class="hide" aria-label="Ask AI">
+  <header><span>Ask AI</span><button id="aiClose" class="small">Close</button></header>
+  <div id="msgs"></div>
+  <form id="askForm"><textarea id="ask" rows="2" placeholder="Stuck? Ask about this lesson."></textarea><button class="blue">Send</button></form>
+</aside>
+
+<script>
+// Everything lives in this browser only (localStorage). Nothing is uploaded anywhere
+// except the video link and your questions, which go straight to Google's Gemini with your own key.
+const $ = (s, n = document) => n.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k);
+  return n;
+};
+const stamp = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const secs = v => {            // accepts 95, "95", "1:35", "0:01:35"
+  if (typeof v === 'number') return v;
+  const p = String(v || '0').split(':').map(Number);
+  return p.reduce((a, b) => a * 60 + (b || 0), 0);
+};
+const P = 'ps:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(P + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(P + k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(P + k); } catch {} },
+};
+const DEFAULT_MODEL = 'gemini-flash-latest';
+const model = () => store.get('model', DEFAULT_MODEL) || DEFAULT_MODEL;
+let current = null;
+
+// ---------- Gemini
+async function gemini(body) {
+  const key = store.get('key', '');
+  if (!key) throw new Error('Add your free Gemini key first.');
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model())}:generateContent`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error?.message || `Request failed (${res.status})`);
+  const text = j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  if (!text) throw new Error('The AI sent back nothing. Try again, or try a shorter video.');
+  return text;
+}
+
+const videoId = link => {
+  const m = String(link).match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+};
+
+const LESSON_PROMPT = extra => `Watch this whole lesson video carefully (picture and sound) and turn it into a study lesson
+for a student who is learning this topic for the very first time.
+
+Return JSON only, in exactly this shape:
+{
+  "title": "<the lesson's topic as a short title>",
+  "channel": "<the presenter's name if they say or show it, else empty>",
+  "duration": "<video length as MM:SS>",
+  "sections": [ {
+      "start": "MM:SS", "end": "MM:SS",
+      "title": "<short title>",
+      "explain": ["<paragraph>", "<paragraph>", ...],
+      "keyFacts": ["<fact, formula or rule worth memorising>", ...],
+      "presenterSaid": "<what the presenter actually said in this part, cleaned up>"
+  } ],
+  "questions": [ {
+      "start": "MM:SS", "end": "MM:SS",
+      "title": "<short name>",
+      "question": "<the full problem with every number and unit needed to solve it>",
+      "board": "<what is drawn or written on screen for this problem BEFORE it is solved, described so the student can sketch it. Empty if nothing.>",
+      "parts": [ { "label": "a", "prompt": "<what to find>", "hints": ["<gentle nudge>", "<stronger nudge>"],
+                   "steps": ["<step 1>", "<step 2>", ...], "answer": "<final answer with units>" } ],
+      "finishedBoard": "<what the presenter's screen shows once the problem is fully solved, described in words>"
+  } ]
+}
+
+Rules for sections:
+- Cover the whole video in order. Each section is about 1 to 2 minutes of video.
+- "explain" is real teaching, not bullet points. 2 to 4 short paragraphs. Explain it the way the presenter does,
+  in the same order, with the same examples and reasons, and make it clearer where you can. Say WHY, not just what.
+  Define every new word the first time it appears. Assume the student has never seen this before.
+- "keyFacts": 1 to 4 short lines, only the things worth memorising (formulas, rules, definitions, common mistakes).
+- "presenterSaid": the presenter's own words for that part, faithful to what was said, with filler removed
+  ("um", "okay", repeats, false starts). Keep every important fact. Do not invent anything.
+
+Rules for questions:
+- Include every example or practice problem the presenter poses and works through.
+- Sub-questions (a, b, c) become parts of one question. A single question uses one part with label "".
+- Hints never give the answer away. Steps follow the presenter's own working, one move per step, each explained
+  for a beginner. If the presenter never computes the final number, compute it yourself and check it twice.
+
+Write maths in plain text, for example: W = F cos(40°) × Δx. No LaTeX, no markdown.
+${extra ? '\nThe student also asked for this: ' + extra : ''}`;
+
+async function buildLesson(id, extra) {
+  const text = await gemini({
+    contents: [{ role: 'user', parts: [
+      { fileData: { fileUri: `https://www.youtube.com/watch?v=${id}` } },
+      { text: LESSON_PROMPT(extra) },
+    ] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.2, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
+  });
+  let j;
+  try { j = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
+  catch { throw new Error('The AI answer got cut off. This video may be too long. Try a shorter one.'); }
+  return saveLesson(id, j);
+}
+
+const img = s => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(s || '')) ? String(s) : '';
+function saveLesson(id, j) {
+  const arr = v => Array.isArray(v) ? v : (v ? [v] : []);
+  const v = {
+    id, url: `https://www.youtube.com/watch?v=${id}`,
+    title: String(j.title || 'Untitled lesson'), channel: String(j.channel || ''), duration: secs(j.duration),
+    sections: arr(j.sections).map(s => ({
+      start: secs(s.start), end: secs(s.end), title: String(s.title || ''),
+      explain: arr(s.explain).map(String), keyFacts: arr(s.keyFacts).map(String), presenterSaid: String(s.presenterSaid || ''),
+    })),
+    questions: arr(j.questions).map((q, i) => ({
+      id: 'q' + (i + 1), start: secs(q.start), end: secs(q.end), title: String(q.title || 'Question ' + (i + 1)),
+      question: String(q.question || ''), board: String(q.board || ''), finishedBoard: String(q.finishedBoard || ''),
+      frame: img(q.frame), solvedFrame: img(q.solvedFrame),
+      workFrames: arr(q.workFrames).map(w => ({ src: img(w.src), at: secs(w.at) })).filter(w => w.src),
+      parts: arr(q.parts).map(p => ({
+        label: String(p.label || ''), prompt: String(p.prompt || ''), hints: arr(p.hints).map(String),
+        steps: arr(p.steps).map(String), answer: String(p.answer || ''),
+      })),
+    })),
+  };
+  if (!v.sections.length && !v.questions.length) throw new Error('The AI could not read this video. Check that it is public.');
+  if (!store.set('v:' + id, v)) throw new Error('This browser is out of storage. Delete an old lesson and try again.');
+  const lib = store.get('lib', []).filter(x => x.id !== id);
+  lib.unshift({ id, title: v.title, channel: v.channel, duration: v.duration, questions: v.questions.length, parts: v.questions.reduce((n, q) => n + q.parts.length, 0) });
+  store.set('lib', lib);
+  return v;
+}
+
+async function similarProblem(q, p) {
+  const text = await gemini({
+    contents: [{ role: 'user', parts: [{ text: `A student got this problem wrong. Write ONE new practice problem that tests exactly the same skill,
+with a different situation and different numbers, at the same difficulty. The student is a beginner.
+Original problem: ${q.question}
+Asked: ${p.prompt}
+Original working: ${p.steps.join(' ')}
+Original answer: ${p.answer}
+Return JSON only: {"question": "<full new problem with all numbers and units>", "hints": ["<gentle nudge>", "<stronger nudge>"],
+"steps": ["<step, explained for a beginner>", ...], "answer": "<final answer with units>"}
+Check your own arithmetic twice. Plain text maths, no LaTeX, no markdown.` }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.8 },
+  });
+  const j = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+  const arr = v => Array.isArray(v) ? v : (v ? [v] : []);
+  return { label: '', prompt: String(j.question || ''), hints: arr(j.hints).map(String), steps: arr(j.steps).map(String), answer: String(j.answer || '') };
+}
+
+// ---------- home
+function keyBox(after) {
+  const input = el('input', { type: 'password', placeholder: 'Paste your Gemini API key', autocomplete: 'off', 'aria-label': 'Gemini API key' });
+  const modelIn = el('input', { type: 'text', value: model(), 'aria-label': 'AI model name' });
+  const has = !!store.get('key', '');
+  return el('div', {},
+    el('label', {}, has ? 'Your Gemini key is saved on this device. Paste a new one to replace it.' : 'First, your free Gemini key'),
+    el('p', { class: 'note' }, 'Get one free at ', el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener' }, 'aistudio.google.com'),
+      ' (Get API key). It is saved on this device only and is only ever sent to Google.'),
+    input,
+    el('details', { class: 'note' }, el('summary', {}, 'Advanced: AI model'), modelIn),
+    el('div', { class: 'row', style: 'margin-top:10px' },
+      el('button', { class: 'blue', onclick: () => {
+        const k = input.value.trim();
+        if (k) store.set('key', k);
+        store.set('model', modelIn.value.trim() || DEFAULT_MODEL);
+        after();
+      } }, 'Save')));
+}
+
+let building = false;
+function showHome(showKey) {
+  current = null;
+  $('#progress').textContent = '';
+  const hasKey = !!store.get('key', '');
+  const links = el('textarea', { rows: '3', placeholder: 'https://youtu.be/...\n(one link per line for a whole course)', 'aria-label': 'YouTube links' });
+  const extra = el('input', { type: 'text', placeholder: 'e.g. "I am weak at vectors, go slow there" or "add 2 extra practice questions"', 'aria-label': 'Extra instructions' });
+  const status = el('div', { class: 'status', 'aria-live': 'polite' });
+  const go = el('button', { class: 'blue go' }, 'Build my lesson');
+  go.onclick = async () => {
+    if (building) return;
+    const ids = [...new Set(links.value.split(/\s+/).map(videoId).filter(Boolean))];
+    status.replaceChildren();
+    if (!ids.length) {
+      const pl = /list=/.test(links.value);
+      return status.append(el('p', { class: 'err' }, pl
+        ? "That's a playlist link. Paste the video links from it instead, one per line."
+        : 'Paste at least one YouTube video link.'));
+    }
+    building = true; go.disabled = true;
+    let ok = 0;
+    for (const [i, id] of ids.entries()) {
+      const line = el('p', {}, `Video ${i + 1} of ${ids.length}: the AI is watching it. This takes 1 to 3 minutes, keep this tab open...`);
+      status.append(line);
+      try { const v = await buildLesson(id, extra.value.trim()); line.textContent = `Done: ${v.title}`; ok++; }
+      catch (e) { line.className = 'err'; line.textContent = `Video ${i + 1} failed: ${e.message}`; }
+    }
+    building = false; go.disabled = false;
+    if (ok) { links.value = ''; drawLib(); }
+  };
+
+  const lib = el('div', { class: 'lib' });
+  const drawLib = () => {
+    const list = store.get('lib', []);
+    lib.replaceChildren();
+    if (!list.length) return lib.append(el('p', {}, 'Nothing here yet. Your lessons show up here, on this device only.'));
+    for (const v of list) {
+      const got = Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'got').length;
+      const miss = Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'miss').length;
+      lib.append(el('div', { class: 'item' },
+        el('a', { href: '#' + v.id },
+          el('div', { class: 't' }, v.title),
+          el('div', { class: 'm' }, [v.channel, v.duration ? stamp(v.duration) : '', `${v.questions} questions`, v.parts ? `${got} of ${v.parts} solved` : '', miss ? `${miss} to redo` : ''].filter(Boolean).join(' · '))),
+        el('button', { class: 'small', 'aria-label': 'Delete ' + v.title, onclick: () => {
+          if (!confirm(`Delete "${v.title}" and your progress on it?`)) return;
+          for (const k of ['v:', 'marks:', 'notes:', 'scroll:', 'similar:']) store.del(k + v.id);
+          store.set('lib', store.get('lib', []).filter(x => x.id !== v.id));
+          drawLib();
+        } }, 'Delete')));
+    }
+  };
+  drawLib();
+
+  $('#app').replaceChildren(el('div', { class: 'narrow' },
+    el('h1', {}, 'Pause & Solve'),
+    el('p', { class: 'sub' }, 'Paste a lesson video. Get it explained step by step, with the questions pulled out so you solve them before you see the working out.'),
+    (!hasKey || showKey)
+      ? el('div', { class: 'make' }, keyBox(() => showHome(false)))
+      : el('div', { class: 'make' },
+          el('label', { style: 'margin-top:0' }, 'YouTube video links'), links,
+          el('label', {}, 'Anything you want added? (optional)'), extra,
+          go, status,
+          el('p', { class: 'note', style: 'margin-bottom:0' }, 'Works best on videos under about 45 minutes. ',
+            el('a', { href: '#', onclick: e => { e.preventDefault(); showHome(true); } }, 'Change key'))),
+    el('h2', { class: 'mine' }, 'Your lessons'),
+    el('p', { class: 'note' }, el('label', { style: 'display:inline;margin:0;text-decoration:underline;cursor:pointer' }, 'Load a lesson file',
+      el('input', { type: 'file', accept: '.json,application/json', class: 'hide', onchange: async e => {
+        const file = e.target.files[0]; if (!file) return;
+        try {
+          const j = JSON.parse(await file.text());
+          if (!/^[\w-]{11}$/.test(j.id || '')) throw new Error('not a lesson file');
+          saveLesson(j.id, j); drawLib();
+        } catch (err) { alert("Couldn't load that file: " + err.message); }
+        e.target.value = '';
+      } })), ' (lessons with pictures, made with the PC builder).'),
+    el('p', { class: 'note' }, 'Saved in this browser on this device. Nobody else can see them.'),
+    lib));
+  window.scrollTo(0, 0);
+}
+
+// ---------- one lesson
+let onMark = () => {};
+function practiceBlock(p, n) {   // an extra AI-made problem: hints and working, not scored
+  let shown = 0;
+  const hints = el('div');
+  const hintBtn = el('button', { class: 'small', onclick: () => {
+    hints.append(el('p', { class: 'hint' }, `Hint ${shown + 1}: ${p.hints[shown]}`));
+    if (++shown >= p.hints.length) hintBtn.classList.add('hide');
+  } }, 'Hint');
+  if (!p.hints.length) hintBtn.classList.add('hide');
+  const work = el('div', { class: 'work hide' }, el('ol', {}, p.steps.map(s => el('li', {}, s))), el('div', { class: 'answer' }, 'Answer: ' + p.answer));
+  const workBtn = el('button', { class: 'small blue', onclick: () => { workBtn.textContent = work.classList.toggle('hide') ? 'Show working out' : 'Hide working out'; } }, 'Show working out');
+  return el('div', { class: 'practice' }, el('b', {}, `SIMILAR PROBLEM ${n}`), el('p', { class: 'prompt' }, p.prompt), el('div', { class: 'row' }, hintBtn, workBtn), hints, work);
+}
+
+function partBlock(v, q, p, i) {
+  const key = `${q.id}.${i}`;
+  const sims = el('div');
+  const drawSims = () => sims.replaceChildren(...(store.get('similar:' + v.id, {})[key] || []).map((s, n) => practiceBlock(s, n + 1)));
+  drawSims();
+  const simMsg = el('p', { class: 'note' });
+  const simBtn = el('button', { class: 'small blue' }, 'Give me a similar problem');
+  simBtn.onclick = async () => {
+    simBtn.disabled = true; simMsg.className = 'note'; simMsg.textContent = 'Writing a new one...';
+    try {
+      const s = await similarProblem(q, p);
+      const all = store.get('similar:' + v.id, {}); (all[key] = all[key] || []).push(s); store.set('similar:' + v.id, all);
+      simMsg.textContent = ''; drawSims();
+    } catch (e) { simMsg.className = 'note err'; simMsg.textContent = "Couldn't make one: " + e.message; }
+    simBtn.disabled = false;
+  };
+  let shown = 0;
+  const hints = el('div');
+  const hintBtn = el('button', { onclick: () => {
+    hints.append(el('p', { class: 'hint' }, `Hint ${shown + 1}: ${p.hints[shown]}`));
+    shown++;
+    if (shown >= p.hints.length) hintBtn.classList.add('hide'); else hintBtn.textContent = 'Another hint';
+  } }, 'Hint');
+  if (!p.hints.length) hintBtn.classList.add('hide');
+
+  const score = el('div', { class: 'score' });
+  const drawScore = () => {
+    const m = store.get('marks:' + v.id, {})[key];
+    const mark = val => () => { const all = store.get('marks:' + v.id, {}); all[key] = val; store.set('marks:' + v.id, all); drawScore(); drawProgress(v); onMark(); };
+    score.replaceChildren(
+      m === 'got' ? el('span', { class: 'got' }, 'Got it. ') : m === 'miss' ? el('span', { class: 'miss' }, 'Missed it. Redo it later. ') : 'Did you get it? ',
+      el('span', { class: 'row', style: 'display:inline-flex' },
+        el('button', { class: 'small' + (m === 'got' ? ' on' : ''), onclick: mark('got') }, 'Got it'),
+        el('button', { class: 'small' + (m === 'miss' ? ' on' : ''), onclick: mark('miss') }, 'Missed it')),
+      m === 'miss' ? el('div', { style: 'margin-top:10px' }, simBtn, simMsg) : null);
+  };
+  drawScore();
+  const work = el('div', { class: 'work hide' }, el('ol', {}, p.steps.map(s => el('li', {}, s))), el('div', { class: 'answer' }, 'Answer: ' + p.answer), score);
+  const workBtn = el('button', { class: 'blue', onclick: () => {
+    const hidden = work.classList.toggle('hide');
+    workBtn.textContent = hidden ? 'Show working out' : 'Hide working out';
+  } }, 'Show working out');
+  return el('div', { class: 'part' },
+    el('p', { class: 'prompt' }, (p.label ? `(${p.label}) ` : '') + (p.prompt || 'Solve it.')),
+    el('div', { class: 'row' }, hintBtn, workBtn), hints, work, sims);
+}
+
+function questionBlock(v, q, n) {
+  const box = el('section', { class: 'q', id: q.id },
+    el('div', { class: 'tag' }, `QUESTION ${n} · ${stamp(q.start)} · `, el('a', { href: `${v.url}&t=${Math.floor(q.start)}s`, target: '_blank', rel: 'noopener' }, 'see it in the video')),
+    el('h2', {}, q.title));
+  if (q.frame) box.append(el('img', { src: q.frame, alt: 'The question as shown in the video', loading: 'lazy' }));
+  box.append(el('p', { class: 'text' }, q.question));
+  if (q.board) box.append(el('div', { class: 'board' }, el('b', {}, 'ON THE BOARD'), q.board));
+  box.append(el('div', { class: 'parts' }, q.parts.map((p, i) => partBlock(v, q, p, i))));
+  if (q.finishedBoard || q.solvedFrame || q.workFrames.length) {
+    const answers = el('div', { class: 'board' }, el('b', {}, 'FINISHED BOARD'),
+      q.finishedBoard ? el('p', {}, q.finishedBoard) : null,
+      el('ul', {}, q.parts.map(p => el('li', {}, (p.label ? `(${p.label}) ` : '') + p.answer))));
+    const stepsText = q.parts.flatMap(p => p.steps);
+    const half = Math.ceil(stepsText.length / 2);
+    box.append(el('details', { class: 'solved' },
+      el('summary', {}, "Show the presenter's working and finished board (spoiler)"),
+      q.workFrames.map((w, k) => el('div', { class: 'pair' },
+        el('img', { src: w.src, alt: 'The presenter partway through the working', loading: 'lazy' }),
+        el('div', { class: 'board' }, el('b', {}, `PARTWAY THROUGH · ${stamp(w.at)}`),
+          el('p', {}, k === 0 ? 'How the presenter sets it up:' : 'How the presenter carries on:'),
+          el('ol', { start: String(k === 0 ? 1 : half + 1) }, (k === 0 ? stepsText.slice(0, half) : stepsText.slice(half)).map(s => el('li', {}, s)))))),
+      el('div', { class: q.solvedFrame ? 'pair' : '' },
+        q.solvedFrame ? el('img', { src: q.solvedFrame, alt: "The presenter's finished board", loading: 'lazy' }) : null,
+        answers)));
+  }
+  return box;
+}
+
+function sectionBlock(v, s, i) {
+  const notes = store.get('notes:' + v.id, {});
+  const ta = el('textarea', { rows: '3', placeholder: 'Add your own notes here. They save by themselves.', 'aria-label': 'Your notes for ' + s.title });
+  ta.value = notes[i] || '';
+  ta.oninput = () => { const all = store.get('notes:' + v.id, {}); all[i] = ta.value; store.set('notes:' + v.id, all); };
+  return el('section', { class: 'sec' },
+    el('div', {},
+      el('div', { class: 'time' }, `${stamp(s.start)} to ${stamp(s.end)}`),
+      el('h2', {}, s.title),
+      s.explain.map(p => el('p', {}, p)),
+      s.presenterSaid ? el('details', { class: 'said' }, el('summary', {}, "In the presenter's words"), el('blockquote', {}, s.presenterSaid)) : null),
+    el('div', { class: 'side' },
+      s.keyFacts.length ? [el('h3', {}, 'REMEMBER'), el('ul', {}, s.keyFacts.map(f => el('li', {}, f)))] : null,
+      el('h3', {}, 'YOUR NOTES'), ta));
+}
+
+function drawProgress(v) {
+  const total = v.questions.reduce((n, q) => n + q.parts.length, 0);
+  const got = Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'got').length;
+  $('#progress').textContent = total ? `${got} / ${total} solved` : '';
+}
+
+function showLesson(v) {
+  current = v;
+  let mode = store.get('mode', 'all');
+  const body = el('div');
+  const draw = () => {
+    body.replaceChildren();
+    const marks = store.get('marks:' + v.id, {});
+    const items = [
+      ...v.sections.map((s, i) => ({ t: s.start, kind: 'sec', s, i })),
+      ...v.questions.map((q, i) => ({ t: q.start + 0.5, kind: 'q', q, n: i + 1 })),
+    ].sort((a, b) => a.t - b.t);
+    for (const it of items) {
+      if (it.kind === 'sec' && mode !== 'questions' && mode !== 'redo') body.append(sectionBlock(v, it.s, it.i));
+      if (it.kind === 'q' && mode !== 'lesson') {
+        if (mode === 'redo' && !it.q.parts.some((p, i) => marks[`${it.q.id}.${i}`] === 'miss')) continue;
+        body.append(questionBlock(v, it.q, it.n));
+      }
+    }
+    if (mode === 'redo' && !body.children.length) body.append(el('p', { class: 'sub' }, 'Nothing to redo. Mark a question "Missed it" and it lands here.'));
+  };
+  const modes = el('div', { class: 'modes' });
+  const drawModes = () => modes.replaceChildren(...[['all', 'Everything'], ['lesson', 'Lesson only'], ['questions', 'Questions only'], ['redo', `To redo (${Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'miss').length})`]]
+    .map(([m, label]) => el('button', { class: m === mode ? 'on' : '', onclick: () => { mode = m; store.set('mode', m); drawModes(); draw(); } }, label)));
+  onMark = drawModes;
+  if (mode === 'redo') mode = 'all';
+  drawModes(); draw(); drawProgress(v);
+  $('#app').replaceChildren(
+    el('h1', {}, v.title),
+    el('p', { class: 'sub' }, [v.channel, v.duration ? stamp(v.duration) : ''].filter(Boolean).join(' · '), (v.channel || v.duration) ? ' · ' : '',
+      el('a', { href: v.url, target: '_blank', rel: 'noopener' }, 'original video')),
+    modes, body);
+  // pick up where you left off
+  const y = store.get('scroll:' + v.id, 0);
+  requestAnimationFrame(() => window.scrollTo(0, y));
+}
+
+let scrollTimer;
+addEventListener('scroll', () => {
+  if (!current) return;
+  clearTimeout(scrollTimer);
+  const id = current.id;
+  scrollTimer = setTimeout(() => { if (current && current.id === id) store.set('scroll:' + id, Math.round(scrollY)); }, 300);
+}, { passive: true });
+
+function route() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) return showHome(false);
+  const v = store.get('v:' + id, null);
+  if (v) return showLesson(v);
+  current = null;
+  $('#app').replaceChildren(el('div', { class: 'narrow' }, el('h1', {}, "That lesson isn't on this device."),
+    el('p', { class: 'sub' }, 'Lessons are saved per device. ', el('a', { href: '#' }, 'Build it here'))));
+}
+addEventListener('hashchange', route);
+route();
+
+// ---------- Ask AI
+let chat = [];
+const msgs = $('#msgs');
+const say = (text, cls) => { const m = el('p', { class: 'msg ' + cls }, text); msgs.append(m); msgs.scrollTop = msgs.scrollHeight; return m; };
+$('#aiBtn').onclick = () => { $('#ai').classList.remove('hide'); $('#ask').focus(); };
+$('#aiClose').onclick = () => $('#ai').classList.add('hide');
+$('#ask').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#askForm').requestSubmit(); } });
+function context() {
+  if (!current) return 'No lesson is open.';
+  const v = current;
+  return `Lesson: "${v.title}".\n` + v.sections.map(s => `${stamp(s.start)} ${s.title}: ${s.explain.join(' ')}`).join('\n') +
+    '\nQuestions:\n' + v.questions.map((q, i) => `Q${i + 1} ${q.question} ` + q.parts.map(p => `(${p.label}) ${p.prompt} Answer: ${p.answer}`).join(' ')).join('\n');
+}
+$('#askForm').onsubmit = async e => {
+  e.preventDefault();
+  const text = $('#ask').value.trim();
+  if (!text) return;
+  $('#ask').value = '';
+  say(text, 'me');
+  chat.push({ role: 'user', parts: [{ text }] });
+  const wait = say('Thinking...', '');
+  try {
+    const out = await gemini({
+      systemInstruction: { parts: [{ text: 'You are a patient tutor for a first-time learner. Short, plain answers. Plain text maths, no LaTeX, no markdown. For practice questions give a hint first, and the full solution only if asked. Lesson notes:\n' + context() }] },
+      contents: chat,
+    });
+    wait.textContent = out;
+    chat.push({ role: 'model', parts: [{ text: out }] });
+  } catch (err) {
+    chat.pop();
+    wait.className = 'msg err';
+    wait.textContent = "Couldn't reach the AI: " + err.message;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+};
+</script>
+</body>
+</html>
