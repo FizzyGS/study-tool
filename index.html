@@ -472,6 +472,7 @@ Return JSON only, in exactly this shape:
       "start": "MM:SS", "end": "MM:SS",
       "title": "<short title>",
       "showAt": "MM:SS",
+      "drawing": "<svg ...>...</svg>",
       "explain": ["<paragraph>", "<paragraph>", ...],
       "keyFacts": ["<fact, formula or rule worth memorising>", ...],
       "presenterSaid": "<what the presenter actually said in this part, cleaned up>"
@@ -481,11 +482,13 @@ Return JSON only, in exactly this shape:
       "title": "<short name>",
       "question": "<the full problem with every number and unit needed to solve it>",
       "frameAt": "MM:SS",
+      "drawing": "<svg ...>...</svg>",
       "board": "<what is drawn or written on screen for this problem BEFORE it is solved, described so the student can sketch it. Empty if nothing.>",
       "parts": [ { "label": "a", "prompt": "<what to find>", "hints": ["<gentle nudge>", "<stronger nudge>"],
                    "steps": ["<step 1>", "<step 2>", ...], "answer": "<final answer with units>" } ],
       "work": [ { "at": "MM:SS", "note": "<1 or 2 sentences: what the presenter has just drawn or written at this moment, and why>" } ],
       "solvedAt": "MM:SS",
+      "solvedDrawing": "<svg ...>...</svg>",
       "finishedBoard": "<what the presenter's screen shows once the problem is fully solved, described in words>"
   } ]
 }
@@ -496,6 +499,18 @@ Screenshot moments (a screenshot of the video is taken at each one, so pick them
 - question "frameAt": a moment when the whole problem is visible on screen and the presenter has NOT started writing the solution.
 - question "work": 1 to 3 moments while the presenter is solving it, spread out, each showing new working on screen.
 - question "solvedAt": the moment the finished solution is fully on screen, just before the presenter moves on.
+
+Drawings (the student may not be able to see the video at all, so these replace the screenshots):
+- section "drawing": redraw what the screen shows at "showAt". question "drawing": redraw the problem as shown at
+  "frameAt", with NO solution on it. question "solvedDrawing": redraw the finished solution as shown at "solvedAt".
+- Copy the real screen as closely as you can: the same diagram, the same labels, numbers, units, arrows and
+  directions, and the key equations written on it, laid out roughly where the presenter put them.
+- Each drawing is one complete SVG: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"> ... </svg>.
+  White background rect first. Black lines, stroke-width 3. One accent colour, #0cc0df, for the thing that matters most.
+  Text: font-family Arial, font-size 24 or more, never overlapping other text or lines, all inside the 800 by 450 area.
+  Only these elements: rect, line, circle, ellipse, path, polygon, polyline, text, g, defs, marker. No images, links,
+  scripts or styles. Use a marker for arrowheads. Keep each drawing under 2200 characters.
+- If the screen only shows the presenter's face or a title card, use "" for that drawing.
 
 Rules for sections:
 - Cover the whole video in order. No section is longer than 2 minutes. A 15 minute video has at least 8 sections.
@@ -535,6 +550,10 @@ async function buildLesson(id, extra, onTick) {
   return saveLesson(id, j);
 }
 
+// an AI drawing: plain SVG text, only ever shown through <img>, where it cannot run scripts or load anything
+const svgOk = s => { s = String(s || '').trim(); return /^<svg[\s>][\s\S]*<\/svg>$/.test(s) && s.length <= 9000 && !/<script|<foreignObject|<image|<iframe|\son\w+\s*=|href/i.test(s) ? (s.includes('xmlns=') ? s : s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')) : ''; };
+const drawnPics = v => Object.fromEntries(Object.entries(v.draw || {}).map(([t, d]) => [t, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(d)]));
+const withDrawings = (v, real) => ({ ...drawnPics(v), ...(real || {}) });      // a real screenshot wins over a drawing
 const img = s => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(s || '')) ? String(s) : '';
 function saveLesson(id, j) {
   const arr = v => Array.isArray(v) ? v : (v ? [v] : []);
@@ -556,6 +575,11 @@ function saveLesson(id, j) {
       })),
     })),
   };
+  v.draw = {};
+  const keep = (t, d) => { const ok = svgOk(d); if (ok && t != null) v.draw[t] = ok; };
+  if (j.draw && typeof j.draw === 'object' && !Array.isArray(j.draw)) for (const [t, d] of Object.entries(j.draw)) keep(secs(t), d);   // a saved or synced lesson
+  arr(j.sections).forEach((s0, i) => keep(v.sections[i].showAt, s0.drawing));
+  arr(j.questions).forEach((q0, i) => { keep(v.questions[i].frameAt, q0.drawing); keep(v.questions[i].solvedAt, q0.solvedDrawing); });
   if (!v.sections.length && !v.questions.length) throw new Error('The AI could not read this video. Check that it is public.');
   store.set('gone', store.get('gone', []).filter(x => x !== id));
   if (!store.set('v:' + id, v)) throw new Error('This browser is out of storage. Delete an old lesson and try again.');
@@ -632,7 +656,8 @@ async function runQueue() {
         });
         setItem(it.id, { title: v.title, note: 'Getting the screenshots...' });
         const got = await fetchPictures(v, (a, b) => setItem(it.id, { note: `Screenshots ${a} of ${b}...` }));
-        let note = got ? `${got} screenshots` : 'no screenshots (the picture helper is not reachable here)';
+        const drawn = Object.keys(v.draw || {}).length;
+        let note = got ? `${got} screenshots` : (drawn ? `${drawn} drawings` : 'no pictures');
         if (syncCode()) {
           try { await syncUp(v); note += ', saved to your account'; }
           catch (e) { note += ', not saved to your account (' + e.message + ')'; }
@@ -747,14 +772,15 @@ function showHome(showKey) {
     try {
       const vids = [];
       for (const l of lists) {
-        const r = await fetch(`http://localhost:4174/playlist?list=${l}`);
+        let r = await fetch(`${CLOUD}/playlist?list=${l}`).catch(() => null);
+        if (!r || !r.ok) r = await fetch(`http://localhost:4174/playlist?list=${l}`);
         if (!r.ok) throw new Error('playlist');
         for (const v of (await r.json()).videos) if (!vids.some(x => x.id === v.id)) vids.push(v);
       }
       status.replaceChildren();
       if (!vids.length) status.append(el('p', { class: 'err' }, 'That playlist looks empty or private.')); else drawPicker(vids);
     } catch {
-      status.replaceChildren(el('p', { class: 'err' }, 'Playlists can only be opened on the home PC, where the picture helper runs. On this device, paste the video links one per line.'));
+      status.replaceChildren(el('p', { class: 'err' }, "Couldn't open that playlist. Check it is public, or paste the video links one per line."));
     }
     go.disabled = false;
   };
@@ -960,13 +986,16 @@ function showLesson(v) {
     if (mode === 'redo' && !body.children.length) body.append(el('p', { class: 'sub' }, 'Nothing to redo. Mark a question "Missed it" and it lands here.'));
   };
   const toolMsg = el('span', { class: 'note' });
-  const picBtn = el('button', { class: 'small' }, Object.keys(pics).length ? 'Refresh screenshots' : 'Get screenshots');
+  const drawnOnly = Object.keys(v.draw || {}).length && !Object.values(pics).some(p => !p.startsWith('data:image/svg'));
+  if (drawnOnly) toolMsg.textContent = 'The pictures are redrawn by the AI from the video. Tap one to make it bigger.';
+  const picBtn = el('button', { class: 'small hide' }, drawnOnly ? 'Get real screenshots' : 'Refresh screenshots');
+  fetch('http://localhost:4174/ping').then(r => { if (r.ok) picBtn.classList.remove('hide'); }).catch(() => {});
   picBtn.onclick = async () => {
     picBtn.disabled = true; toolMsg.className = 'note'; toolMsg.textContent = 'Getting screenshots...';
     const n = await fetchPictures(v, (a, b) => { toolMsg.textContent = `Screenshots ${a} of ${b}...`; });
     picBtn.disabled = false;
     if (!n) { toolMsg.className = 'note err'; toolMsg.textContent = "The picture server isn't reachable right now. Try again later."; return; }
-    pics = await picsGet(v.id); toolMsg.textContent = ''; picBtn.textContent = 'Refresh screenshots'; draw();
+    pics = withDrawings(v, await picsGet(v.id)); toolMsg.textContent = ''; picBtn.textContent = 'Refresh screenshots'; draw();
   };
   const saveBtn = el('button', { class: 'small', onclick: () => {
     const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify({ ...v, frames: pics })], { type: 'application/json' })),
@@ -1002,7 +1031,7 @@ function route() {
   const id = decodeURIComponent(location.hash.slice(1));
   if (!id) return needsWelcome() ? showWelcome() : showHome(false);
   const v = store.get('v:' + id, null);
-  if (v) return picsGet(id).then(p => { pics = p; showLesson(v); });
+  if (v) return picsGet(id).then(p => { pics = withDrawings(v, p); showLesson(v); });
   current = null;
   $('#app').replaceChildren(el('div', { class: 'narrow' }, el('h1', {}, "That lesson isn't on this device."),
     el('p', { class: 'sub' }, 'Lessons are saved per device. ', el('a', { href: '#' }, 'Build it here'))));
