@@ -76,6 +76,9 @@
   .work li { margin: 6px 0; }
   .answer { font-weight: 800; font-size: 22px; overflow-wrap: anywhere; }
   .solved { margin-top: 12px; }
+  .shot { display: block; width: 100%; height: auto; border: 3px solid #000; margin: 4px 0 16px; }
+  .board, .sec p, .q .text { white-space: pre-line; }
+  .tools { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: -12px 0 24px; align-items: center; }
   .pair { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); margin-top: 12px; align-items: start; }
   @media (min-width: 820px) { .pair { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
   .pair .board, .solved .board { margin: 0; }
@@ -141,22 +144,107 @@ const store = {
   set(k, v) { try { localStorage.setItem(P + k, JSON.stringify(v)); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(P + k); } catch {} },
 };
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+const FALLBACKS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
 const model = () => store.get('model', DEFAULT_MODEL) || DEFAULT_MODEL;
 let current = null;
 
 // ---------- Gemini
-async function gemini(body) {
+async function geminiOnce(m, key, body, onTick) {
+  const ctl = new AbortController();
+  let timer = setTimeout(() => ctl.abort(), 90000);            // nothing for 90 seconds = move on
+  const alive = () => { clearTimeout(timer); timer = setTimeout(() => ctl.abort(), 90000); };
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:streamGenerateContent?alt=sse`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: ctl.signal,
+    });
+    if (!res.ok) {
+      let j = await res.json().catch(() => ({}));
+      if (Array.isArray(j)) j = j[0] || {};
+      const e = new Error(j.error?.message || `Request failed (${res.status})`);
+      e.fatal = res.status === 401 || res.status === 403 || /api key/i.test(e.message);
+      throw e;
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '', text = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      alive();
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        let j; try { j = JSON.parse(line.slice(5)); } catch { continue; }
+        if (j.error) throw new Error(j.error.message);
+        for (const p of j.candidates?.[0]?.content?.parts || []) if (p.text && !p.thought) text += p.text;
+        onTick(text.length);
+      }
+    }
+    return text;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('The AI took too long to answer.');
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+async function gemini(body, onTick = () => {}) {
   const key = store.get('key', '');
   if (!key) throw new Error('Add your free Gemini key first.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model())}:generateContent`, {
-    method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error?.message || `Request failed (${res.status})`);
-  const text = j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-  if (!text) throw new Error('The AI sent back nothing. Try again, or try a shorter video.');
-  return text;
+  let last = new Error('The AI sent back nothing. Try again.');
+  for (const m of [...new Set([model(), ...FALLBACKS])]) {
+    try { const text = await geminiOnce(m, key, body, onTick); if (text) return text; }
+    catch (e) { last = e; if (e.fatal) break; }
+  }
+  throw last;
+}
+
+// ---------- pictures: kept in this browser's own database (IndexedDB), keyed by second of the video
+let pics = {};
+const idb = () => new Promise((ok, bad) => {
+  const r = indexedDB.open('pause-solve', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('pics');
+  r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error);
+});
+const idbDo = async (mode, fn, fallback) => {
+  try {
+    const db = await idb();
+    return await new Promise(ok => { const r = fn(db.transaction('pics', mode).objectStore('pics')); r.onsuccess = () => ok(r.result); r.onerror = () => ok(fallback); });
+  } catch { return fallback; }
+};
+const picsGet = async id => (await idbDo('readonly', st => st.get(id), null)) || {};
+const picsSet = (id, map) => idbDo('readwrite', st => st.put(map, id), null);
+const picsDel = id => idbDo('readwrite', st => st.delete(id), null);
+const cleanPics = map => Object.fromEntries(Object.entries(map && typeof map === 'object' ? map : {}).filter(([t, src]) => /^\d+$/.test(t) && img(src)));
+const picTimes = v => [...new Set([
+  ...v.sections.map(s => s.showAt),
+  ...v.questions.flatMap(q => [q.frameAt, q.solvedAt, ...q.work.map(w => w.at)]),
+].filter(t => Number.isInteger(t) && t >= 0))];
+
+async function picServers() {
+  const list = [];
+  const own = store.get('picServer', ''); if (own) list.push(own);
+  try { const j = await (await fetch('pictures.json', { cache: 'no-store' })).json(); if (j.url) list.push(j.url); } catch {}
+  list.push('http://localhost:4174');
+  return [...new Set(list.map(u => String(u).replace(/\/+$/, '')))];
+}
+async function fetchPictures(v, onTick = () => {}) {
+  const times = picTimes(v);
+  if (!times.length) return 0;
+  for (const base of await picServers()) {
+    try {
+      const have = {};
+      for (let i = 0; i < times.length; i += 8) {
+        const r = await fetch(`${base}/frames?id=${v.id}&t=${times.slice(i, i + 8).join(',')}`);
+        if (!r.ok) throw new Error('server said ' + r.status);
+        Object.assign(have, cleanPics((await r.json()).frames));
+        onTick(Object.keys(have).length, times.length);
+      }
+      if (Object.keys(have).length) { await picsSet(v.id, have); return Object.keys(have).length; }
+    } catch {}
+  }
+  return 0;
 }
 
 const videoId = link => {
@@ -175,6 +263,7 @@ Return JSON only, in exactly this shape:
   "sections": [ {
       "start": "MM:SS", "end": "MM:SS",
       "title": "<short title>",
+      "showAt": "MM:SS",
       "explain": ["<paragraph>", "<paragraph>", ...],
       "keyFacts": ["<fact, formula or rule worth memorising>", ...],
       "presenterSaid": "<what the presenter actually said in this part, cleaned up>"
@@ -183,39 +272,55 @@ Return JSON only, in exactly this shape:
       "start": "MM:SS", "end": "MM:SS",
       "title": "<short name>",
       "question": "<the full problem with every number and unit needed to solve it>",
+      "frameAt": "MM:SS",
       "board": "<what is drawn or written on screen for this problem BEFORE it is solved, described so the student can sketch it. Empty if nothing.>",
       "parts": [ { "label": "a", "prompt": "<what to find>", "hints": ["<gentle nudge>", "<stronger nudge>"],
                    "steps": ["<step 1>", "<step 2>", ...], "answer": "<final answer with units>" } ],
+      "work": [ { "at": "MM:SS", "note": "<1 or 2 sentences: what the presenter has just drawn or written at this moment, and why>" } ],
+      "solvedAt": "MM:SS",
       "finishedBoard": "<what the presenter's screen shows once the problem is fully solved, described in words>"
   } ]
 }
 
+Screenshot moments (a screenshot of the video is taken at each one, so pick them with care):
+- section "showAt": the moment in that part when the screen shows the most useful thing for the explanation
+  (the finished diagram, formula, table or slide for that part). It must be inside the section.
+- question "frameAt": a moment when the whole problem is visible on screen and the presenter has NOT started writing the solution.
+- question "work": 1 to 3 moments while the presenter is solving it, spread out, each showing new working on screen.
+- question "solvedAt": the moment the finished solution is fully on screen, just before the presenter moves on.
+
 Rules for sections:
-- Cover the whole video in order. Each section is about 1 to 2 minutes of video.
-- "explain" is real teaching, not bullet points. 2 to 4 short paragraphs. Explain it the way the presenter does,
-  in the same order, with the same examples and reasons, and make it clearer where you can. Say WHY, not just what.
+- Cover the whole video in order. No section is longer than 2 minutes. A 15 minute video has at least 8 sections.
+- "explain" is real teaching, not bullet points. 2 to 4 short paragraphs, no lists inside. Explain it the way the
+  presenter does, in the same order, with the same examples and reasons, and make it clearer where you can.
+  Write like a friendly older student talking to a 14 year old, not like a textbook. Use words a 12 year old
+  knows, plus the subject's own terms. Sentences under 20 words. Talk to the student as "you".
+  Bad: "Scalar values can be added directly, avoiding the need to decompose quantities into coordinate axes."
+  Good: "A scalar is just a number, like 5 or -3. It has no direction. So you can add scalars the normal way, which is much easier than adding arrows."
+  One idea per paragraph. Say WHY, not just what.
   Define every new word the first time it appears. Assume the student has never seen this before.
 - "keyFacts": 1 to 4 short lines, only the things worth memorising (formulas, rules, definitions, common mistakes).
 - "presenterSaid": the presenter's own words for that part, faithful to what was said, with filler removed
   ("um", "okay", repeats, false starts). Keep every important fact. Do not invent anything.
 
 Rules for questions:
-- Include every example or practice problem the presenter poses and works through.
-- Sub-questions (a, b, c) become parts of one question. A single question uses one part with label "".
+- Include every example or practice problem the presenter poses and works through, even quick ones.
+- Sub-questions (a, b, c) become parts of one question. When a problem asks about several forces, objects or
+  moments, make one part for each, so the student answers them one at a time. A single question uses one part with label "".
 - Hints never give the answer away. Steps follow the presenter's own working, one move per step, each explained
   for a beginner. If the presenter never computes the final number, compute it yourself and check it twice.
 
 Write maths in plain text, for example: W = F cos(40°) × Δx. No LaTeX, no markdown.
 ${extra ? '\nThe student also asked for this: ' + extra : ''}`;
 
-async function buildLesson(id, extra) {
+async function buildLesson(id, extra, onTick) {
   const text = await gemini({
     contents: [{ role: 'user', parts: [
       { fileData: { fileUri: `https://www.youtube.com/watch?v=${id}` } },
       { text: LESSON_PROMPT(extra) },
     ] }],
     generationConfig: { responseMimeType: 'application/json', temperature: 0.2, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
-  });
+  }, onTick);
   let j;
   try { j = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
   catch { throw new Error('The AI answer got cut off. This video may be too long. Try a shorter one.'); }
@@ -229,14 +334,14 @@ function saveLesson(id, j) {
     id, url: `https://www.youtube.com/watch?v=${id}`,
     title: String(j.title || 'Untitled lesson'), channel: String(j.channel || ''), duration: secs(j.duration),
     sections: arr(j.sections).map(s => ({
-      start: secs(s.start), end: secs(s.end), title: String(s.title || ''),
+      start: secs(s.start), end: secs(s.end), title: String(s.title || ''), showAt: s.showAt == null ? null : secs(s.showAt),
       explain: arr(s.explain).map(String), keyFacts: arr(s.keyFacts).map(String), presenterSaid: String(s.presenterSaid || ''),
     })),
     questions: arr(j.questions).map((q, i) => ({
       id: 'q' + (i + 1), start: secs(q.start), end: secs(q.end), title: String(q.title || 'Question ' + (i + 1)),
       question: String(q.question || ''), board: String(q.board || ''), finishedBoard: String(q.finishedBoard || ''),
-      frame: img(q.frame), solvedFrame: img(q.solvedFrame),
-      workFrames: arr(q.workFrames).map(w => ({ src: img(w.src), at: secs(w.at) })).filter(w => w.src),
+      frameAt: secs(q.frameAt ?? q.start), solvedAt: secs(q.solvedAt ?? q.end),
+      work: arr(q.work).map(w => ({ at: secs(w.at), note: String(w.note || '') })),
       parts: arr(q.parts).map(p => ({
         label: String(p.label || ''), prompt: String(p.prompt || ''), hints: arr(p.hints).map(String),
         steps: arr(p.steps).map(String), answer: String(p.answer || ''),
@@ -311,9 +416,15 @@ function showHome(showKey) {
     building = true; go.disabled = true;
     let ok = 0;
     for (const [i, id] of ids.entries()) {
-      const line = el('p', {}, `Video ${i + 1} of ${ids.length}: the AI is watching it. This takes 1 to 3 minutes, keep this tab open...`);
+      const line = el('p', {}, `Video ${i + 1} of ${ids.length}: the AI is watching it. This takes about a minute, keep this tab open...`);
       status.append(line);
-      try { const v = await buildLesson(id, extra.value.trim()); line.textContent = `Done: ${v.title}`; ok++; }
+      try {
+        const v = await buildLesson(id, extra.value.trim(), n => { if (n) line.textContent = `Video ${i + 1} of ${ids.length}: writing your lesson... ${n.toLocaleString()} characters so far`; });
+        line.textContent = `Video ${i + 1} of ${ids.length}: lesson written. Getting the screenshots...`;
+        const got = await fetchPictures(v, (a, b) => { line.textContent = `Video ${i + 1} of ${ids.length}: screenshots ${a} of ${b}...`; });
+        line.textContent = `Done: ${v.title}` + (got ? ` (${got} screenshots)` : ' (no screenshots: the picture server is not reachable right now, you can add them later from the lesson)');
+        ok++;
+      }
       catch (e) { line.className = 'err'; line.textContent = `Video ${i + 1} failed: ${e.message}`; }
     }
     building = false; go.disabled = false;
@@ -336,6 +447,7 @@ function showHome(showKey) {
           if (!confirm(`Delete "${v.title}" and your progress on it?`)) return;
           for (const k of ['v:', 'marks:', 'notes:', 'scroll:', 'similar:']) store.del(k + v.id);
           store.set('lib', store.get('lib', []).filter(x => x.id !== v.id));
+          picsDel(v.id);
           drawLib();
         } }, 'Delete')));
     }
@@ -360,10 +472,10 @@ function showHome(showKey) {
         try {
           const j = JSON.parse(await file.text());
           if (!/^[\w-]{11}$/.test(j.id || '')) throw new Error('not a lesson file');
-          saveLesson(j.id, j); drawLib();
+          saveLesson(j.id, j); await picsSet(j.id, cleanPics(j.frames)); drawLib();
         } catch (err) { alert("Couldn't load that file: " + err.message); }
         e.target.value = '';
-      } })), ' (lessons with pictures, made with the PC builder).'),
+      } })), ' (one that somebody saved and sent you).'),
     el('p', { class: 'note' }, 'Saved in this browser on this device. Nobody else can see them.'),
     lib));
   window.scrollTo(0, 0);
@@ -435,27 +547,22 @@ function questionBlock(v, q, n) {
   const box = el('section', { class: 'q', id: q.id },
     el('div', { class: 'tag' }, `QUESTION ${n} · ${stamp(q.start)} · `, el('a', { href: `${v.url}&t=${Math.floor(q.start)}s`, target: '_blank', rel: 'noopener' }, 'see it in the video')),
     el('h2', {}, q.title));
-  if (q.frame) box.append(el('img', { src: q.frame, alt: 'The question as shown in the video', loading: 'lazy' }));
+  if (pics[q.frameAt]) box.append(el('img', { src: pics[q.frameAt], alt: 'The question as shown in the video', loading: 'lazy' }));
   box.append(el('p', { class: 'text' }, q.question));
   if (q.board) box.append(el('div', { class: 'board' }, el('b', {}, 'ON THE BOARD'), q.board));
   box.append(el('div', { class: 'parts' }, q.parts.map((p, i) => partBlock(v, q, p, i))));
-  if (q.finishedBoard || q.solvedFrame || q.workFrames.length) {
-    const answers = el('div', { class: 'board' }, el('b', {}, 'FINISHED BOARD'),
-      q.finishedBoard ? el('p', {}, q.finishedBoard) : null,
-      el('ul', {}, q.parts.map(p => el('li', {}, (p.label ? `(${p.label}) ` : '') + p.answer))));
-    const stepsText = q.parts.flatMap(p => p.steps);
-    const half = Math.ceil(stepsText.length / 2);
-    box.append(el('details', { class: 'solved' },
-      el('summary', {}, "Show the presenter's working and finished board (spoiler)"),
-      q.workFrames.map((w, k) => el('div', { class: 'pair' },
-        el('img', { src: w.src, alt: 'The presenter partway through the working', loading: 'lazy' }),
-        el('div', { class: 'board' }, el('b', {}, `PARTWAY THROUGH · ${stamp(w.at)}`),
-          el('p', {}, k === 0 ? 'How the presenter sets it up:' : 'How the presenter carries on:'),
-          el('ol', { start: String(k === 0 ? 1 : half + 1) }, (k === 0 ? stepsText.slice(0, half) : stepsText.slice(half)).map(s => el('li', {}, s)))))),
-      el('div', { class: q.solvedFrame ? 'pair' : '' },
-        q.solvedFrame ? el('img', { src: q.solvedFrame, alt: "The presenter's finished board", loading: 'lazy' }) : null,
-        answers)));
-  }
+  const done = pics[q.solvedAt];
+  const answers = el('div', { class: 'board' }, el('b', {}, 'FINISHED BOARD'),
+    q.finishedBoard ? el('p', {}, q.finishedBoard) : null,
+    el('ul', {}, q.parts.map(p => el('li', {}, (p.label ? `(${p.label}) ` : '') + p.answer))));
+  box.append(el('details', { class: 'solved' },
+    el('summary', {}, "Show the presenter's working and finished board (spoiler)"),
+    (q.work || []).filter(w => pics[w.at] || w.note).map(w => el('div', { class: pics[w.at] ? 'pair' : '' },
+      pics[w.at] ? el('img', { src: pics[w.at], alt: 'The presenter partway through the working', loading: 'lazy' }) : null,
+      el('div', { class: 'board' }, el('b', {}, `PARTWAY THROUGH · ${stamp(w.at)}`), el('p', {}, w.note)))),
+    el('div', { class: done ? 'pair' : '' },
+      done ? el('img', { src: done, alt: "The presenter's finished board", loading: 'lazy' }) : null,
+      answers)));
   return box;
 }
 
@@ -468,6 +575,7 @@ function sectionBlock(v, s, i) {
     el('div', {},
       el('div', { class: 'time' }, `${stamp(s.start)} to ${stamp(s.end)}`),
       el('h2', {}, s.title),
+      pics[s.showAt] ? el('img', { class: 'shot', src: pics[s.showAt], alt: 'The video at ' + stamp(s.showAt), loading: 'lazy' }) : null,
       s.explain.map(p => el('p', {}, p)),
       s.presenterSaid ? el('details', { class: 'said' }, el('summary', {}, "In the presenter's words"), el('blockquote', {}, s.presenterSaid)) : null),
     el('div', { class: 'side' },
@@ -501,6 +609,21 @@ function showLesson(v) {
     }
     if (mode === 'redo' && !body.children.length) body.append(el('p', { class: 'sub' }, 'Nothing to redo. Mark a question "Missed it" and it lands here.'));
   };
+  const toolMsg = el('span', { class: 'note' });
+  const picBtn = el('button', { class: 'small' }, Object.keys(pics).length ? 'Refresh screenshots' : 'Get screenshots');
+  picBtn.onclick = async () => {
+    picBtn.disabled = true; toolMsg.className = 'note'; toolMsg.textContent = 'Getting screenshots...';
+    const n = await fetchPictures(v, (a, b) => { toolMsg.textContent = `Screenshots ${a} of ${b}...`; });
+    picBtn.disabled = false;
+    if (!n) { toolMsg.className = 'note err'; toolMsg.textContent = "The picture server isn't reachable right now. Try again later."; return; }
+    pics = await picsGet(v.id); toolMsg.textContent = ''; picBtn.textContent = 'Refresh screenshots'; draw();
+  };
+  const saveBtn = el('button', { class: 'small', onclick: () => {
+    const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify({ ...v, frames: pics })], { type: 'application/json' })),
+      download: (v.title.replace(/[^\w ]+/g, '').trim().slice(0, 60) || v.id) + '.lesson.json' });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } }, 'Save as a file to share');
+  const tools = el('div', { class: 'tools' }, picBtn, saveBtn, toolMsg);
   const modes = el('div', { class: 'modes' });
   const drawModes = () => modes.replaceChildren(...[['all', 'Everything'], ['lesson', 'Lesson only'], ['questions', 'Questions only'], ['redo', `To redo (${Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'miss').length})`]]
     .map(([m, label]) => el('button', { class: m === mode ? 'on' : '', onclick: () => { mode = m; store.set('mode', m); drawModes(); draw(); } }, label)));
@@ -511,7 +634,7 @@ function showLesson(v) {
     el('h1', {}, v.title),
     el('p', { class: 'sub' }, [v.channel, v.duration ? stamp(v.duration) : ''].filter(Boolean).join(' · '), (v.channel || v.duration) ? ' · ' : '',
       el('a', { href: v.url, target: '_blank', rel: 'noopener' }, 'original video')),
-    modes, body);
+    tools, modes, body);
   // pick up where you left off
   const y = store.get('scroll:' + v.id, 0);
   requestAnimationFrame(() => window.scrollTo(0, y));
@@ -529,7 +652,7 @@ function route() {
   const id = decodeURIComponent(location.hash.slice(1));
   if (!id) return showHome(false);
   const v = store.get('v:' + id, null);
-  if (v) return showLesson(v);
+  if (v) return picsGet(id).then(p => { pics = p; showLesson(v); });
   current = null;
   $('#app').replaceChildren(el('div', { class: 'narrow' }, el('h1', {}, "That lesson isn't on this device."),
     el('p', { class: 'sub' }, 'Lessons are saved per device. ', el('a', { href: '#' }, 'Build it here'))));
