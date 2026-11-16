@@ -145,7 +145,7 @@ const store = {
   del(k) { try { localStorage.removeItem(P + k); } catch {} },
 };
 const DEFAULT_MODEL = 'gemini-3.5-flash';
-const FALLBACKS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
+const FALLBACKS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'];
 const model = () => store.get('model', DEFAULT_MODEL) || DEFAULT_MODEL;
 let current = null;
 
@@ -193,11 +193,15 @@ async function gemini(body, onTick = () => {}) {
   const key = store.get('key', '');
   if (!key) throw new Error('Add your free Gemini key first.');
   let last = new Error('The AI sent back nothing. Try again.');
-  for (const m of [...new Set([model(), ...FALLBACKS])]) {
-    try { const text = await geminiOnce(m, key, body, onTick); if (text) return text; }
-    catch (e) { last = e; if (e.fatal) break; }
+  // Google's free AI is often busy. Try every model, and if all are busy wait a bit and go round again.
+  for (const wait of [0, 10, 25, 45]) {
+    if (wait) { onTick(0, `The AI is busy. Trying again in ${wait} seconds...`); await new Promise(r => setTimeout(r, wait * 1000)); onTick(0, 'Trying again...'); }
+    for (const m of [...new Set([model(), ...FALLBACKS])]) {
+      try { const text = await geminiOnce(m, key, body, onTick); if (text) return text; }
+      catch (e) { last = e; if (e.fatal) throw e; }
+    }
   }
-  throw last;
+  throw new Error("Google's AI is too busy right now (" + last.message + ') Try again in a few minutes.');
 }
 
 // ---------- pictures: kept in this browser's own database (IndexedDB), keyed by second of the video
@@ -519,12 +523,12 @@ function showHome(showKey) {
         : 'Paste at least one YouTube video link.'));
     }
     building = true; go.disabled = true;
-    let ok = 0;
+    let ok = 0; const failed = [];
     for (const [i, id] of ids.entries()) {
       const line = el('p', {}, `Video ${i + 1} of ${ids.length}: the AI is watching it. This takes about a minute, keep this tab open...`);
       status.append(line);
       try {
-        const v = await buildLesson(id, extra.value.trim(), n => { if (n) line.textContent = `Video ${i + 1} of ${ids.length}: writing your lesson... ${n.toLocaleString()} characters so far`; });
+        const v = await buildLesson(id, extra.value.trim(), (n, note) => { if (note) line.textContent = `Video ${i + 1} of ${ids.length}: ${note}`; else if (n) line.textContent = `Video ${i + 1} of ${ids.length}: writing your lesson... ${n.toLocaleString()} characters so far`; });
         line.textContent = `Video ${i + 1} of ${ids.length}: lesson written. Getting the screenshots...`;
         const got = await fetchPictures(v, (a, b) => { line.textContent = `Video ${i + 1} of ${ids.length}: screenshots ${a} of ${b}...`; });
         line.textContent = `Done: ${v.title}` + (got ? ` (${got} screenshots)` : ' (no screenshots: the picture server is not reachable right now, you can add them later from the lesson)');
@@ -534,10 +538,12 @@ function showHome(showKey) {
         }
         ok++;
       }
-      catch (e) { line.className = 'err'; line.textContent = `Video ${i + 1} failed: ${e.message}`; }
+      catch (e) { line.className = 'err'; line.textContent = `Video ${i + 1} failed: ${e.message}`; failed.push(`https://youtu.be/${id}`); }
     }
     building = false; go.disabled = false;
-    if (ok) { links.value = ''; drawLib(); }
+    links.value = failed.join('\n');
+    if (failed.length) status.append(el('p', {}, 'The links that failed are back in the box. Press the button to try them again.'));
+    if (ok) drawLib();
   };
 
   const lib = el('div', { class: 'lib' });
