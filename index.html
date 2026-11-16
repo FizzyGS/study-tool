@@ -96,6 +96,14 @@
     .q h2 { font-size: 24px; } .sec h2 { font-size: 24px; }
   }
 
+  #app img { cursor: zoom-in; }
+  #viewer { position: fixed; inset: 0; z-index: 50; background: #000; overflow: auto; display: flex; -webkit-overflow-scrolling: touch; }
+  #viewer img { margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; display: block; }
+  #viewer.zoom img { max-width: none; max-height: none; width: 250vw; cursor: zoom-out; }
+  #viewer .vclose { position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 2; }
+  #viewer .vhelp { position: fixed; left: 0; right: 0; bottom: max(10px, env(safe-area-inset-bottom)); text-align: center; color: #fff; font-size: 14px; pointer-events: none; text-shadow: 0 0 4px #000; }
+  #viewer.zoom .vhelp { display: none; }
+
   /* AI side panel + settings */
   #aiBtn { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 5; }
   #ai { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); background: #fff; border-left: 3px solid #000; display: flex; flex-direction: column; z-index: 10; }
@@ -229,9 +237,28 @@ const picTimes = v => [...new Set([
 // ---------- your own devices: lessons are locked in the browser with your sync code before they go online
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 const sha256 = str => crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-const syncCode = () => store.get('sync', '');
-const newCode = () => { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; return normCode([...crypto.getRandomValues(new Uint8Array(20))].map(b => a[b % a.length]).join('')); };
-const normCode = str => String(str).toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/(.{5})(?=.)/g, '$1-');
+const me = () => store.get('me', null);                 // { name, secret } once signed in on this device
+const syncCode = () => (me() || {}).secret || '';
+const cleanName = str => String(str).replace(/[^A-Za-z0-9 _-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+const pinProblem = pin => {
+  if (!/^\d{4}$/.test(pin)) return 'The PIN is 4 digits.';
+  const d = [...pin].map(Number);
+  const step = d[1] - d[0];
+  if (new Set(d).size === 1) return 'Too easy: all the same digit.';
+  if (Math.abs(step) === 1 && d[2] - d[1] === step && d[3] - d[2] === step) return 'Too easy: digits in a row.';
+  if (d[0] === d[2] && d[1] === d[3]) return 'Too easy: a repeated pair.';
+  if (d[0] === d[1] && d[2] === d[3]) return 'Too easy: two doubles.';
+  if (d[0] === d[3] && d[1] === d[2]) return 'Too easy: it reads the same backwards.';
+  if (+pin >= 1950 && +pin <= 2030) return 'Too easy: it looks like a year.';
+  if (['1004', '2580', '0852', '1379', '2468', '1357', '0246', '1470', '3690'].includes(pin)) return 'Too easy: a very common PIN.';
+  return '';
+};
+async function secretFor(name, pin) {    // slow on purpose, so guessing PINs takes longer
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(name.toLowerCase() + '|' + pin), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode('pause-solve-v1'), iterations: 400000 }, base, 256));
+}
+const getUsers = async () => { try { const j = await (await fetch('v/users.json?t=' + Date.now(), { cache: 'no-store' })).json(); return Array.isArray(j) ? j.map(cleanName).filter(Boolean) : []; } catch { return []; } };
+const helperUp = async () => { try { return (await fetch('http://localhost:4174/ping')).ok; } catch { return false; } };
 async function syncKeys(code) {
   const raw = code.replace(/-/g, '');
   return {
@@ -288,45 +315,89 @@ async function syncAll(say = () => {}) {
     say(`Sending "${row.title}"...`);
     try { await syncUp(v); up++; } catch { break; }
   }
-  return { down, up, found: !!cloud };
+  return { down, up };
 }
 function syncBox(redraw) {
   const box = el('div', { class: 'make', style: 'margin-top:12px' });
   const msg = el('p', { class: 'note', 'aria-live': 'polite', style: 'margin:10px 0 0' });
+  const say = (t, bad) => { msg.className = 'note' + (bad ? ' err' : ''); msg.textContent = t; };
   const go = async () => {
-    msg.className = 'note'; msg.textContent = 'Syncing...';
+    say('Syncing...');
     try {
-      const r = await syncAll(t => { msg.textContent = t; });
-      msg.textContent = (r.down || r.up) ? `Done. ${r.down} lesson(s) brought here, ${r.up} sent.` : (r.found ? 'Everything is up to date.' : 'Nothing online for this code yet. Lessons get sent from the PC where you build them.');
+      const r = await syncAll(t => say(t));
+      say((r.down || r.up) ? `Done. ${r.down} lesson(s) brought here, ${r.up} sent.` : 'Everything is up to date.');
       if (r.down) redraw();
-    } catch (e) { msg.className = 'note err'; msg.textContent = "Couldn't sync: " + e.message; }
+    } catch (e) { say("Couldn't sync: " + e.message, true); }
   };
-  const draw = () => {
-    const code = syncCode();
-    if (code) {
-      box.replaceChildren(
-        el('b', {}, 'Your sync code'), el('p', { style: 'font-size:24px;font-weight:800;margin:4px 0;overflow-wrap:anywhere' }, code),
-        el('p', { class: 'note' }, 'Type this code on your other devices and your lessons, with screenshots, show up there. Keep it to yourself: anyone with the code can read your lessons.'),
-        el('div', { class: 'row' }, el('button', { class: 'blue small', onclick: go }, 'Sync now'),
-          el('button', { class: 'small', onclick: () => { if (confirm('Stop syncing on this device? Your lessons stay here.')) { store.del('sync'); draw(); } } }, 'Turn off')),
-        msg);
-    } else {
-      const input = el('input', { type: 'text', placeholder: 'XXXXX-XXXXX-XXXXX-XXXXX', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Sync code from your other device' });
-      box.replaceChildren(
-        el('b', {}, 'Use it on your other devices'),
-        el('p', { class: 'note' }, 'Lessons you build at home can show up on your laptop, iPad and phone, screenshots included. They are locked with a code only you have.'),
-        el('div', { class: 'row' }, el('button', { class: 'blue small', onclick: () => { store.set('sync', newCode()); draw(); go(); } }, 'Start here: make my code')),
-        el('label', {}, 'Or type the code from your other device'), input,
-        el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'small', onclick: () => {
-          const c = normCode(input.value);
-          if (c.replace(/-/g, '').length !== 20) { msg.className = 'note err'; msg.textContent = 'That code should be 20 letters and numbers.'; return; }
-          store.set('sync', c); draw(); go();
-        } }, 'Use this code')),
-        msg);
-    }
+  const pinInput = () => el('input', { type: 'password', inputmode: 'numeric', maxlength: '4', pattern: '[0-9]*', placeholder: '4 digit PIN', autocomplete: 'off', 'aria-label': '4 digit PIN', style: 'max-width:200px' });
+
+  const signedIn = () => box.replaceChildren(
+    el('b', {}, 'Signed in as'), el('p', { style: 'font-size:24px;font-weight:800;margin:4px 0;overflow-wrap:anywhere' }, me().name),
+    el('p', { class: 'note' }, 'Your lessons follow you. On another device, open this site, pick your name and type your PIN.'),
+    el('div', { class: 'row' }, el('button', { class: 'blue small', onclick: go }, 'Sync now'),
+      el('button', { class: 'small', onclick: () => { if (confirm('Sign out on this device? Your lessons stay on this device.')) { store.del('me'); store.del('syncIdx'); draw(); } } }, 'Sign out')),
+    msg);
+
+  const signIn = name => {
+    const pin = pinInput();
+    const btn = el('button', { class: 'blue small' }, 'Sign in');
+    btn.onclick = async () => {
+      if (!/^\d{4}$/.test(pin.value)) return say('The PIN is 4 digits.', true);
+      btn.disabled = true; say('Checking...');
+      const secret = await secretFor(name, pin.value);
+      const found = await cloudGet(await syncKeys(secret), 'index');
+      btn.disabled = false;
+      if (!found) { pin.value = ''; return say('Wrong PIN. Try again.', true); }
+      store.del('syncIdx'); store.set('me', { name, secret }); draw(); go();
+    };
+    pin.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+    box.replaceChildren(el('b', {}, 'Hi ' + name), el('label', {}, 'Your PIN'), pin,
+      el('div', { class: 'row', style: 'margin-top:10px' }, btn, el('button', { class: 'small', onclick: draw }, 'Back')), msg);
+    say(''); pin.focus();
+  };
+
+  const signUp = users => {
+    const name = el('input', { type: 'text', maxlength: '20', placeholder: 'Username', autocomplete: 'off', 'aria-label': 'Username' });
+    const pin = pinInput();
+    const btn = el('button', { class: 'blue small' }, 'Create my account');
+    btn.onclick = async () => {
+      const n = cleanName(name.value);
+      if (n.length < 2) return say('Pick a username with at least 2 letters or numbers.', true);
+      if (users.some(u => u.toLowerCase() === n.toLowerCase())) return say('That username is taken. Pick another.', true);
+      const bad = pinProblem(pin.value);
+      if (bad) return say(bad + ' Pick a harder one.', true);
+      btn.disabled = true; say('Creating your account...');
+      try {
+        const secret = await secretFor(n, pin.value);
+        const k = await syncKeys(secret);
+        await cloudPut(k, 'index', []);
+        const r = await fetch('http://localhost:4174/publish', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'users.json', data: btoa(JSON.stringify([...new Set([...await getUsers(), ...users, n])])) }) });
+        if (!r.ok) throw new Error('could not save the username');
+        store.set('me', { name: n, secret }); store.del('syncIdx'); draw(); go();
+      } catch (e) { btn.disabled = false; say("Couldn't create the account: " + e.message, true); }
+    };
+    box.replaceChildren(el('b', {}, 'New account'), el('label', {}, 'Username'), name, el('label', {}, 'PIN (4 digits, not an easy one)'), pin,
+      el('div', { class: 'row', style: 'margin-top:10px' }, btn, el('button', { class: 'small', onclick: draw }, 'Back')), msg);
+    say(''); name.focus();
+  };
+
+  const draw = async () => {
+    if (me()) return signedIn();
+    box.replaceChildren(el('p', { class: 'note', style: 'margin:0' }, 'Looking for accounts...'));
+    const [users, canCreate] = await Promise.all([getUsers(), helperUp()]);
+    if (me()) return signedIn();
+    box.replaceChildren(
+      el('b', {}, users.length ? 'Already a user? Pick your name.' : 'Accounts'),
+      users.length ? el('div', { class: 'row', style: 'margin:10px 0' }, users.map(u => el('button', { class: 'small', onclick: () => signIn(u) }, u))) : null,
+      canCreate
+        ? el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'blue small', onclick: () => signUp(users) }, 'Create an account'))
+        : el('p', { class: 'note' }, users.length ? 'New here? You can use the site without an account, your lessons save on this device. New accounts are made on the home PC where lessons with screenshots get built.' : 'No accounts yet. Accounts are made on the home PC where lessons with screenshots get built.'),
+      msg);
+    say('');
   };
   draw();
-  if (syncCode() && !syncBox.ran) { syncBox.ran = true; go(); }
+  if (me() && !syncBox.ran) { syncBox.ran = true; go(); }
   return box;
 }
 
@@ -594,7 +665,7 @@ function showHome(showKey) {
       } })), ' (one that somebody saved and sent you).'),
     el('p', { class: 'note' }, 'Saved in this browser on this device. Nobody else can see them.'),
     lib,
-    el('h2', { class: 'mine' }, 'Your other devices'),
+    el('h2', { class: 'mine' }, 'Your account'),
     syncBox(drawLib)));
   window.scrollTo(0, 0);
 }
@@ -777,6 +848,28 @@ function route() {
 }
 addEventListener('hashchange', route);
 route();
+
+// ---------- full screen screenshots
+const viewer = el('div', { id: 'viewer', class: 'hide', role: 'dialog', 'aria-label': 'Screenshot', tabindex: '-1' });
+const viewerImg = el('img', { alt: '' });
+const viewerHelp = el('div', { class: 'vhelp' }, 'Tap the picture to zoom. Pinch or scroll to move around.');
+const closeViewer = () => { viewer.classList.add('hide'); viewer.classList.remove('zoom'); document.body.style.overflow = ''; };
+viewer.append(el('button', { class: 'small vclose', onclick: closeViewer }, 'Close'), viewerImg, viewerHelp);
+document.body.append(viewer);
+viewerImg.onclick = e => {
+  e.stopPropagation();
+  const r = viewerImg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  const zoomed = viewer.classList.toggle('zoom');
+  if (zoomed) requestAnimationFrame(() => viewer.scrollTo(viewerImg.offsetWidth * fx - innerWidth / 2, viewerImg.offsetHeight * fy - innerHeight / 2));
+};
+viewer.onclick = closeViewer;
+addEventListener('keydown', e => { if (e.key === 'Escape' && !viewer.classList.contains('hide')) closeViewer(); });
+document.addEventListener('click', e => {
+  const t = e.target;
+  if (t.tagName !== 'IMG' || t === viewerImg || !t.closest('#app')) return;
+  viewerImg.src = t.src; viewerImg.alt = t.alt;
+  viewer.classList.remove('hide', 'zoom'); document.body.style.overflow = 'hidden'; viewer.scrollTo(0, 0); viewer.focus();
+});
 
 // ---------- Ask AI
 let chat = [];
