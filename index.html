@@ -14,8 +14,36 @@
   a { color: inherit; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right)) 140px max(16px, env(safe-area-inset-left)); }
   .narrow { max-width: 760px; margin: 0 auto; }
-  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 28px; }
-  .top a { font-weight: 800; text-decoration: none; font-size: 20px; }
+  .top { display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 3px solid #000; margin-bottom: 36px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; text-decoration: none; font-size: 21px; white-space: nowrap; }
+  .bars { display: inline-flex; gap: 5px; }
+  .bars i { display: block; width: 8px; height: 24px; background: #000; }
+  .brand:hover .bars i { background: var(--blue); }
+  #nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+  #nav a { font-weight: 800; font-size: 15px; text-decoration: none; padding: 8px 12px; white-space: nowrap; }
+  #nav a:hover { background: var(--soft); }
+  #nav a.on { background: #000; color: #fff; }
+  #progress { font-weight: 800; font-size: 15px; }
+  #qbar { display: block; background: var(--blue); border: 3px solid #000; font-weight: 800; padding: 10px 16px; margin: -18px 0 28px; text-decoration: none; }
+  .mark { background: var(--blue); padding: 0 .18em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .hero { padding: 12px 0 8px; }
+  .hero .sub { max-width: 620px; margin: 0 auto 26px; font-size: 20px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .cta button { font-size: 19px; padding: 14px 24px; }
+  .label { font-size: 14px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 52px 0 12px; display: flex; align-items: center; gap: 12px; }
+  .label::after { content: ""; flex: 1; height: 3px; background: #000; }
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: 4px; border: 3px solid #000; padding: 16px 16px 18px; text-decoration: none; min-height: 132px; }
+  .tile:hover { background: var(--blue); }
+  .tile .tag { font-size: 13px; font-weight: 800; letter-spacing: 1.5px; }
+  .tile .name { font-size: 24px; font-weight: 800; line-height: 1.15; margin-top: auto; }
+  .tile .by { font-size: 14px; }
+  .plist { border-top: 3px solid #000; padding: 14px 0; }
+  .plist:last-child { border-bottom: 3px solid #000; }
+  .plist .head { display: flex; align-items: center; gap: 12px; }
+  .plist .t { flex: 1; font-size: 20px; font-weight: 800; line-height: 1.25; min-width: 0; overflow-wrap: anywhere; }
+  .foot { border-top: 3px solid #000; margin-top: 72px; padding-top: 14px; font-size: 13px; line-height: 1.5; }
+  @media (max-width: 640px) { #nav { order: 3; flex-basis: 100%; margin: 0 -8px; } #progress { margin-left: auto; } .top { margin-bottom: 26px; } }
   h1 { font-size: clamp(34px, 6vw, 68px); font-weight: 800; line-height: 1.1; margin: 0 0 10px; text-align: center; overflow-wrap: anywhere; }
   .sub { text-align: center; margin: 0 0 28px; }
   button { font: inherit; font-weight: 800; background: #fff; color: #000; border: 3px solid #000; padding: 10px 18px; cursor: pointer; min-height: 48px; }
@@ -46,6 +74,7 @@
   @media (max-width: 560px) { .two { grid-template-columns: 1fr; } }
   .status p { margin: 8px 0 0; font-weight: 600; overflow-wrap: anywhere; }
   h2.mine { font-size: 28px; font-weight: 800; margin: 44px 0 8px; }
+  .narrow > h1 { margin-bottom: 14px; }
   .lib .item { display: flex; align-items: center; gap: 12px; border-top: 3px solid #000; padding: 16px 0; }
   .lib .item:last-child { border-bottom: 3px solid #000; }
   .lib a { flex: 1; text-decoration: none; min-width: 0; }
@@ -131,8 +160,14 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><a href="#">Pause &amp; Solve</a><span id="progress"></span></div>
+  <header class="top">
+    <a class="brand" href="#"><span class="bars" aria-hidden="true"><i></i><i></i></span>Pause &amp; Solve</a>
+    <nav id="nav" aria-label="Main"><a href="#courses">AP courses</a><a href="#lessons">My lessons</a><a href="#add">Add a video</a><a href="#account">Account</a></nav>
+    <span id="progress"></span>
+  </header>
+  <a id="qbar" class="hide" href="#add"></a>
   <main id="app"></main>
+  <footer class="foot">Pause &amp; Solve is a free study tool. It is not affiliated with or endorsed by the College Board or the teachers listed. AP is a registered trademark of the College Board. Every video belongs to its creator, and each lesson links back to the original.</footer>
 </div>
 
 <button id="aiBtn" class="blue">Ask AI</button>
@@ -271,7 +306,7 @@ async function secretFor(name, pin) {    // slow on purpose, so guessing PINs ta
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(name.toLowerCase() + '|' + pin), 'PBKDF2', false, ['deriveBits']);
   return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode('pause-solve-v1'), iterations: 400000 }, base, 256));
 }
-const CLOUD = 'https://pause-solve.fizzygs.workers.dev';   // the online store: usernames + locked lesson files. Works with every PC off.
+const CLOUD = location.hostname === 'localhost' ? 'https://app.pauseandsolve.workers.dev/api' : '/api';   // the online store: usernames + locked lesson files. Works with every PC off.
 const cloudErr = async r => { let m = ''; try { m = (await r.json()).error; } catch {} return new Error(m || 'the online store did not answer'); };
 const getUsers = async () => { try { const j = await (await fetch(CLOUD + '/users', { cache: 'no-store' })).json(); return Array.isArray(j.users) ? j.users.map(cleanName).filter(Boolean) : []; } catch { return null; } };
 async function syncKeys(code) {
@@ -677,7 +712,9 @@ const needsWelcome = () => !store.get('welcomed', false) && !store.get('key', ''
 function showWelcome(step = 'start') {
   current = null;
   $('#progress').textContent = '';
-  const done = () => { store.set('welcomed', true); showHome(false); };
+  if (step === 'start') return showHome();
+  setNav('');
+  const done = () => { store.set('welcomed', true); bgSync(); go('courses'); };
   const link = (text, fn) => el('a', { href: '#', onclick: e => { e.preventDefault(); fn(); } }, text);
   const head = (n, of, title, text) => [el('p', { class: 'stepno' }, `STEP ${n} OF ${of}`), el('h2', { style: 'margin:0 0 8px' }, title), el('p', { style: 'margin:0 0 14px' }, text)];
   const keyHelp = () => el('ol', { class: 'how', style: 'margin:0 0 6px' },
@@ -709,7 +746,7 @@ function showWelcome(step = 'start') {
     el('p', { class: 'note' }, link('Back', () => showWelcome('new1')), ' · ', link("I'll do this later", done)),
   ];
   if (step === 'new3') body = [
-    ...head(3, 3, 'Paste your first video', 'You are set. On the next screen, paste a YouTube lesson link and hit "Build my lessons".'),
+    ...head(3, 3, 'Pick your first lesson', 'You are set. Next you see the AP courses. Open one, tick a video and hit Build. Or use "Add a video" to paste any YouTube link.'),
     el('ol', { class: 'how', style: 'margin:0 0 16px' },
       el('li', {}, 'It takes about a minute per video. Keep the tab open while it builds.'),
       el('li', {}, 'Your lessons are saved, so you can close the site and come back later.'),
@@ -731,86 +768,108 @@ function showWelcome(step = 'start') {
   window.scrollTo(0, 0);
 }
 
-function showHome(showKey) {
-  current = null;
+// ---------- AP courses: playlists from teachers students already use (ids read from their YouTube channels)
+const TSAO = 'Allen Tsao The STEM Coach', KRUG = 'Jeremy Krug', HEIMLER = "Heimler's History";
+const COURSES = [
+  { key: 'physics-1', tag: 'PHYS 1', name: 'AP Physics 1', by: TSAO, lists: [
+    ['Full course', 'PLADfMnz16UfGutUoimNFBoKSW8kVUtzIg'], ['Kinematics problems', 'PLADfMnz16UfHY9fMTsJfd28tfmMmZZW48'], ['Dynamics', 'PLADfMnz16UfF6ANGA7mrId6UZSFQwhg7q'],
+    ['Circular motion and gravitation', 'PLADfMnz16UfEVPhGWKqmNEiqfHuCmWK2h'], ['Energy', 'PLADfMnz16UfGGbyCbodlwNs0ZpIib4wCg'], ['Momentum', 'PLADfMnz16UfEvI_yImTBwY9dtXSnzlFGp'],
+    ['Simple harmonic motion', 'PLADfMnz16UfH3LCEpBlJot7LvzATqf-qN'], ['Torque and rotational motion', 'PLADfMnz16UfE8RTKAYbcNazjhPAy9tVhW'],
+    ['Exam review (2025 update)', 'PLADfMnz16UfEF4Er_CQC2B5nXgBEr9DiC'], ['FRQ walkthroughs', 'PLADfMnz16UfEw6M2Wv-ctGqbvIsoxYmB_']] },
+  { key: 'physics-2', tag: 'PHYS 2', name: 'AP Physics 2', by: TSAO, lists: [
+    ['Exam review (2025 update)', 'PLADfMnz16UfHza5hPEXtOWGhqEfLFcpFH'], ['FRQ walkthroughs', 'PLADfMnz16UfHZU9SePwDu6x0fkNNC6ZRk']] },
+  { key: 'physics-c', tag: 'PHYS C', name: 'AP Physics C', by: TSAO, lists: [
+    ['Mechanics: full course', 'PLADfMnz16UfFY18nt_vXy49-fqwJ4rQzX'], ['Mechanics: exam review', 'PLADfMnz16UfFCVGHazK3FIYAhPwVR80cV'],
+    ['Electricity and Magnetism: full course', 'PLADfMnz16UfEQZRoGGovqQzuQc9tJ2zyN'], ['Electricity and Magnetism: exam review', 'PLADfMnz16UfEgDihskAKTzaaHYmGy6Jxz']] },
+  { key: 'calculus', tag: 'CALC', name: 'AP Calculus AB and BC', by: TSAO, lists: [
+    ['Calculus BC', 'PLADfMnz16UfGMXHT-Q_IpfF5iGjVzZ6Zd'], ['Calculus AB: every FRQ', 'PLADfMnz16UfEFpj25XlIuJt3U9BdRIieI'], ['Related rates', 'PLADfMnz16UfEmYsQlE8HYzvqJSfTMjHVo'],
+    ['Optimization', 'PLADfMnz16UfEdJyz31yMU-vs6TvIMGP3M'], ['Application of derivatives', 'PLADfMnz16UfHDes5Egmoh4MeOzeB7qJhW'], ['Application of integrals', 'PLADfMnz16UfEsuYrxe1EaJjvLDoyzL2Yn'],
+    ['Differential equations', 'PLADfMnz16UfEE4qp4VZq0Ly479DTSeut2'], ['Series', 'PLADfMnz16UfERK627KL8hcaA4jDLu7zp-'], ['Polar curves', 'PLADfMnz16UfFCeGv5ZrNGR2WEKIC855RI']] },
+  { key: 'chemistry', tag: 'CHEM', name: 'AP Chemistry', by: KRUG, lists: [
+    ['Top 10 things to know for each unit', 'PLp8P489qkBobF6OwLSIhtn08yfU8hc_gD'], ['FRQ walkthroughs', 'PLp8P489qkBoY5uMjRtsvkwG8VhFmHZy_l'], ['Review strategies', 'PLp8P489qkBoZM-cKRJmaNuodjJnwrjutD']] },
+  { key: 'us-history', tag: 'APUSH', name: 'AP US History', by: HEIMLER, lists: [
+    ['Unit 1', 'PLEHRHjICEfDUkwlhx0SFi4-dgPI82_Wn3'], ['Unit 5 review', 'PLEHRHjICEfDWmb7bduiSCHYnUmYx6r36N'], ['Unit 8 review', 'PLEHRHjICEfDWhNFWxbvPY_FihVyhZEtR7'],
+    ['Unit 9 review', 'PLEHRHjICEfDWQesJdnjON-QxZWVCEKoiO'], ['How to write DBQs and LEQs', 'PLEHRHjICEfDUil2GBYRfRk_vzsJyAI450'], ['AP history exam prep 2025', 'PLEHRHjICEfDX4QumIqGj60QbN59nJ9Umc']] },
+  { key: 'world-history', tag: 'WORLD', name: 'AP World History', by: HEIMLER, lists: [
+    ['Unit 0', 'PLEHRHjICEfDVLBpD1Rkc04M8G5Pn4bSVH'], ['Unit 2', 'PLEHRHjICEfDVlP4J7Zn1_LFTm_-8bkxpN'], ['Unit 3', 'PLEHRHjICEfDXd8x9722rSfw5go8MX2R7z'], ['Unit 5', 'PLEHRHjICEfDVqlm9W8s3LiDUJDF_M7eBv'],
+    ['Unit 6', 'PLEHRHjICEfDUcEYepeOH1x30epqrxfHoW'], ['Unit 7', 'PLEHRHjICEfDXpIjArszCIqDxXGHApX6WY'], ['Unit 8', 'PLEHRHjICEfDVHumyadDXNRYm_SDYmilbi'], ['How to write DBQs and LEQs', 'PLEHRHjICEfDUil2GBYRfRk_vzsJyAI450']] },
+  { key: 'euro-history', tag: 'EURO', name: 'AP European History', by: HEIMLER, lists: [
+    ['Unit 1 review', 'PLEHRHjICEfDWDNjJgvnNTHfUFv3Sgjgb6'], ['Unit 2 review', 'PLEHRHjICEfDWqxqKS0uueDgZh-_SL_Bqa'], ['Unit 5 review', 'PLEHRHjICEfDXx_FPKCdJF0LObAaWkWaGQ'], ['Unit 6 review', 'PLEHRHjICEfDUWYubKHxBqxmt_zRvaWfHY'],
+    ['Unit 7 review', 'PLEHRHjICEfDX6IlivvRvJFSvSI5Irq-Tu'], ['Unit 8 review', 'PLEHRHjICEfDXs6TmlZthhHW5hMuVjrPSE'], ['Unit 9 review', 'PLEHRHjICEfDVbWQquigPWRxske9xu359u']] },
+  { key: 'government', tag: 'GOV', name: 'AP US Government', by: HEIMLER, lists: [
+    ['Unit 1 review', 'PLEHRHjICEfDWfGrAY61tu5pdA7oZNQlkl'], ['Unit 2 review', 'PLEHRHjICEfDV9C4DkO3ma8bjeGBlr8mMz'], ['Unit 3 review', 'PLEHRHjICEfDUuUGjXakQSIC2kMzRQPvOJ'], ['Unit 4 review', 'PLEHRHjICEfDVOKk-KBKtBYnXEQr5AWL2t'],
+    ['Unit 5 review', 'PLEHRHjICEfDWpUBYzpujtgqPlMYo0-SGw'], ['Required cases', 'PLEHRHjICEfDXe-ATV2N0WoTmon1upLDBK'], ['Foundational documents', 'PLEHRHjICEfDVfJn47DODrkcvdRGvAAeFq'], ['FRQ review', 'PLEHRHjICEfDXwqpQ-XgswFaDecZ0u3fdP']] },
+  { key: 'human-geography', tag: 'HUG', name: 'AP Human Geography', by: HEIMLER, lists: [
+    ['Unit 5 review', 'PLEHRHjICEfDUhq8fm4U0JBjbJiubAmIU8'], ['Unit 6 review', 'PLEHRHjICEfDUitxnVBAtmJXkkLgBTicCx'], ['Unit 7 review', 'PLEHRHjICEfDXBmOAidgR4L5jiCyr34XZD']] },
+  { key: 'macroeconomics', tag: 'MACRO', name: 'AP Macroeconomics', by: HEIMLER, lists: [['Full course', 'PLEHRHjICEfDXVqY7YLPfRvBjGZT7SaZks']] },
+];
+
+// ---------- pages
+const setNav = on => { for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('on', a.getAttribute('href') === '#' + on); };
+const go = hash => { if (location.hash === '#' + hash) route(); else location.hash = '#' + hash; };
+function page(nav, ...kids) {
+  current = null; pageQueue = () => {}; libDraw = () => {};
   $('#progress').textContent = '';
-  const hasKey = !!store.get('key', '');
-  const links = el('textarea', { rows: '3', placeholder: 'https://youtu.be/...  or a playlist link\n(one link per line)', 'aria-label': 'YouTube links' });
-  const extra = el('input', { type: 'text', placeholder: 'e.g. "I am weak at vectors, go slow there" or "add 2 extra practice questions"', 'aria-label': 'Extra instructions' });
-  const status = el('div', { class: 'status', 'aria-live': 'polite' });
-  const picker = el('div');
-  const go = el('button', { class: 'blue go' }, 'Build my lessons');
+  setNav(nav);
+  $('#app').replaceChildren(el('div', { class: 'narrow' }, ...kids));
+  window.scrollTo(0, 0);
+}
+const label = text => el('h2', { class: 'label' }, text);
+const tiles = () => el('div', { class: 'tiles' }, COURSES.map(c => el('a', { class: 'tile', href: '#course/' + c.key },
+  el('span', { class: 'tag' }, c.tag), el('span', { class: 'name' }, c.name), el('span', { class: 'by' }, c.by))));
+const needKey = () => el('p', { class: 'err' }, 'You need your free AI key first. ', el('a', { href: '#account' }, 'Add it in Account'), ' (takes a minute).');
 
-  const drawPicker = vids => {
-    const boxes = vids.map(v => {
-      const have = !!store.get('v:' + v.id, null);
-      const c = el('input', { type: 'checkbox' }); c.checked = !have;
-      return { v, c, row: el('label', { class: 'pick' }, c, el('span', {}, v.title || v.id, el('span', { class: 'note' }, (v.duration ? ' · ' + stamp(v.duration) : '') + (have ? ' · already built' : '')))) };
-    });
-    const build = el('button', { class: 'blue small' });
-    const count = () => { const n = boxes.filter(b => b.c.checked).length; build.textContent = `Build selected (${n})`; build.disabled = !n; };
-    boxes.forEach(b => b.c.onchange = count);
-    const all = on => () => { boxes.forEach(b => b.c.checked = on); count(); };
-    build.onclick = () => { addToQueue(boxes.filter(b => b.c.checked).map(b => ({ id: b.v.id, title: b.v.title })), extra.value.trim()); picker.replaceChildren(); links.value = ''; };
-    count();
-    picker.replaceChildren(el('div', { class: 'picker' },
-      el('b', {}, `${vids.length} videos in this playlist. Tick the ones you want.`),
-      el('div', { class: 'row', style: 'margin:10px 0' }, el('button', { class: 'small', onclick: all(true) }, 'Select all'), el('button', { class: 'small', onclick: all(false) }, 'Select none')),
-      el('div', { class: 'picklist' }, boxes.map(b => b.row)),
-      el('div', { class: 'row', style: 'margin-top:12px' }, build, el('button', { class: 'small', onclick: () => picker.replaceChildren() }, 'Cancel'))));
+// the bar under the menu: shows on every page while lessons build
+let pageQueue = () => {};
+queueDraw = () => {
+  const left = queue().filter(x => x.state === 'wait' || x.state === 'work').length;
+  const bar = $('#qbar');
+  bar.classList.toggle('hide', !left || location.hash === '#add');
+  bar.textContent = left ? `Building ${left} lesson${left > 1 ? 's' : ''} in the background. Keep this tab open. See progress` : '';
+  pageQueue();
+};
+
+// a playlist's videos with tick boxes, drawn into `mount`
+function pickerInto(mount, vids, extraText = () => '', after = () => {}) {
+  const boxes = vids.map(v => {
+    const have = !!store.get('v:' + v.id, null);
+    const c = el('input', { type: 'checkbox' }); c.checked = !have;
+    return { v, c, row: el('label', { class: 'pick' }, c, el('span', {}, v.title || v.id, el('span', { class: 'note' }, (v.duration ? ' · ' + stamp(v.duration) : '') + (have ? ' · already built' : '')))) };
+  });
+  const msg = el('div');
+  const build = el('button', { class: 'blue small' });
+  const count = () => { const n = boxes.filter(b => b.c.checked).length; build.textContent = `Build selected (${n})`; build.disabled = !n; };
+  boxes.forEach(b => b.c.onchange = count);
+  const all = on => () => { boxes.forEach(b => b.c.checked = on); count(); };
+  build.onclick = () => {
+    if (!store.get('key', '')) return msg.replaceChildren(needKey());
+    addToQueue(boxes.filter(b => b.c.checked).map(b => ({ id: b.v.id, title: b.v.title })), extraText());
+    mount.replaceChildren(el('p', { class: 'note' }, 'Added. They build one at a time, and each one lands in ', el('a', { href: '#lessons' }, 'My lessons'), ' when it is ready.'));
+    after();
   };
+  count();
+  mount.replaceChildren(el('div', { class: 'picker' },
+    el('b', {}, `${vids.length} videos. Tick the ones you want.`),
+    el('div', { class: 'row', style: 'margin:10px 0' }, el('button', { class: 'small', onclick: all(true) }, 'Select all'), el('button', { class: 'small', onclick: all(false) }, 'Select none')),
+    el('div', { class: 'picklist' }, boxes.map(b => b.row)),
+    el('div', { class: 'row', style: 'margin-top:12px' }, build, el('button', { class: 'small', onclick: () => mount.replaceChildren() }, 'Close')), msg));
+}
+async function playlistVideos(l) {
+  let r = await fetch(`${CLOUD}/playlist?list=${l}`).catch(() => null);
+  if (!r || !r.ok) r = await fetch(`http://localhost:4174/playlist?list=${l}`);
+  if (!r.ok) throw new Error('playlist');
+  return (await r.json()).videos || [];
+}
 
-  go.onclick = async () => {
-    status.replaceChildren(); picker.replaceChildren();
-    const words = links.value.split(/\s+/).filter(Boolean);
-    const lists = [...new Set(words.map(w => (w.match(/[?&]list=([\w-]{10,64})/) || [])[1]).filter(Boolean))];
-    const ids = [...new Set(words.filter(w => !/[?&]list=/.test(w)).map(videoId).filter(Boolean))];
-    if (!ids.length && !lists.length) return status.append(el('p', { class: 'err' }, 'Paste at least one YouTube video or playlist link.'));
-    if (ids.length) { addToQueue(ids.map(id => ({ id })), extra.value.trim()); if (!lists.length) links.value = ''; }
-    if (!lists.length) return;
-    go.disabled = true; status.append(el('p', {}, 'Reading the playlist...'));
-    try {
-      const vids = [];
-      for (const l of lists) {
-        let r = await fetch(`${CLOUD}/playlist?list=${l}`).catch(() => null);
-        if (!r || !r.ok) r = await fetch(`http://localhost:4174/playlist?list=${l}`);
-        if (!r.ok) throw new Error('playlist');
-        for (const v of (await r.json()).videos) if (!vids.some(x => x.id === v.id)) vids.push(v);
-      }
-      status.replaceChildren();
-      if (!vids.length) status.append(el('p', { class: 'err' }, 'That playlist looks empty or private.')); else drawPicker(vids);
-    } catch {
-      status.replaceChildren(el('p', { class: 'err' }, "Couldn't open that playlist. Check it is public, or paste the video links one per line."));
-    }
-    go.disabled = false;
-  };
-
-  const qbox = el('div');
-  queueDraw = () => {
-    const q = queue();
-    qbox.replaceChildren();
-    if (!q.length) return;
-    const left = q.filter(x => x.state === 'wait' || x.state === 'work').length;
-    const word = { wait: 'Waiting', work: 'Now', done: 'Done', fail: 'Failed' };
-    qbox.append(el('div', { class: 'queue' },
-      el('b', {}, left ? `Building in the background: ${left} left.` : 'All done.'),
-      left ? el('p', { class: 'note', style: 'margin:4px 0 8px' }, 'Keep this tab open. Finished lessons are ready to study below while the rest build.') : null,
-      q.map(x => el('p', { class: 'qrow' + (x.state === 'fail' ? ' err' : '') }, el('b', {}, word[x.state] + ': '), (x.title || 'youtu.be/' + x.id) + (x.note ? ' · ' + x.note : ''))),
-      el('div', { class: 'row', style: 'margin-top:10px' },
-        q.some(x => x.state === 'fail') ? el('button', { class: 'small blue', onclick: () => { store.set('queue', queue().map(x => x.state === 'fail' ? { ...x, state: 'wait', note: '' } : x)); queueDraw(); runQueue(); } }, 'Retry failed') : null,
-        q.some(x => x.state === 'wait') ? el('button', { class: 'small', onclick: () => { store.set('queue', queue().filter(x => x.state !== 'wait')); queueDraw(); } }, 'Stop the rest') : null,
-        q.some(x => x.state === 'done' || x.state === 'fail') ? el('button', { class: 'small', onclick: () => { store.set('queue', queue().filter(x => x.state === 'wait' || x.state === 'work')); queueDraw(); } }, 'Clear finished') : null)));
-  };
-
-  const lib = el('div', { class: 'lib' });
-  const drawLib = () => {
-    const list = store.get('lib', []);
-    lib.replaceChildren();
-    if (!list.length) return lib.append(el('p', {}, 'Nothing here yet. Your lessons show up here, on this device only.'));
-    for (const v of list) {
-      const got = Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'got').length;
-      const miss = Object.values(store.get('marks:' + v.id, {})).filter(m => m === 'miss').length;
-      lib.append(el('div', { class: 'item' },
+function lessonRows(mount, list, empty) {
+  const draw = () => {
+    const rows = list();
+    mount.replaceChildren();
+    if (!rows.length) return mount.append(el('p', {}, empty));
+    for (const v of rows) {
+      const marks = Object.values(store.get('marks:' + v.id, {}));
+      const got = marks.filter(m => m === 'got').length, miss = marks.filter(m => m === 'miss').length;
+      mount.append(el('div', { class: 'item' },
         el('a', { href: '#' + v.id },
           el('div', { class: 't' }, v.title),
           el('div', { class: 'm' }, [v.channel, v.duration ? stamp(v.duration) : '', `${v.questions} questions`, v.parts ? `${got} of ${v.parts} solved` : '', miss ? `${miss} to redo` : ''].filter(Boolean).join(' · '))),
@@ -820,41 +879,146 @@ function showHome(showKey) {
           store.set('lib', store.get('lib', []).filter(x => x.id !== v.id));
           picsDel(v.id);
           store.set('gone', [...new Set([...store.get('gone', []), v.id])]);   // don't bring it back on the next sync
-          drawLib();
+          draw();
         } }, 'Delete')));
     }
   };
-  drawLib();
-  libDraw = drawLib; queueDraw();
+  draw();
+  return draw;
+}
 
-  $('#app').replaceChildren(el('div', { class: 'narrow' },
-    el('h1', {}, 'Pause & Solve'),
-    el('p', { class: 'sub' }, 'Paste a lesson video or a whole playlist. Get it explained step by step, with the questions pulled out so you solve them before you see the working out.'),
-    (!hasKey || showKey)
-      ? el('div', { class: 'make' }, keyBox(() => showHome(false)))
-      : el('div', { class: 'make' },
-          el('label', { style: 'margin-top:0' }, 'YouTube video or playlist links'), links,
-          el('label', {}, 'Anything you want added? (optional)'), extra,
-          go, status, picker, qbox,
-          el('p', { class: 'note', style: 'margin-bottom:0' }, 'Works best on videos under about 45 minutes. ',
-            el('a', { href: '#', onclick: e => { e.preventDefault(); showHome(true); } }, 'Change key'))),
-    el('h2', { class: 'mine' }, 'Your lessons'),
-    el('p', { class: 'note' }, el('label', { style: 'display:inline;margin:0;text-decoration:underline;cursor:pointer' }, 'Load a lesson file',
+function showHome() {
+  const fresh = needsWelcome();
+  const recent = el('div', { class: 'lib' });
+  const has = store.get('lib', []).length;
+  page('',
+    el('div', { class: 'hero' },
+      el('h1', {}, 'Pause the video. ', el('span', { class: 'mark' }, 'Solve it first.')),
+      el('p', { class: 'sub' }, 'Pick an AP class or paste any YouTube lesson. You get it explained step by step, with every question pulled out so you try it before you see the working.'),
+      fresh
+        ? el('div', { class: 'two' },
+            el('button', { class: 'blue', onclick: () => showWelcome('new1') }, "I'm new here", el('span', {}, 'Set up in 3 short steps')),
+            el('button', { onclick: () => showWelcome('old1') }, 'I already have an account', el('span', {}, 'Pick your name, type your PIN')))
+        : el('div', { class: 'cta' },
+            el('button', { class: 'blue', onclick: () => go('courses') }, 'Browse AP courses'),
+            el('button', { onclick: () => go('add') }, 'Add your own video'))),
+    has ? label('Keep going') : null, has ? recent : null,
+    label('AP courses'), tiles(),
+    label('How it works'),
+    el('ol', { class: 'how', style: 'margin-top:0' },
+      el('li', {}, 'Pick a video from an AP course, or paste any YouTube lesson link.'),
+      el('li', {}, 'The AI watches it and writes the lesson: plain explanations, drawings of the board, and every question the teacher asks.'),
+      el('li', {}, 'You try each question first. Hints if you are stuck, the working out when you are ready.'),
+      el('li', {}, 'Nothing to install. Works in the browser on a phone, iPad or laptop, and your lessons follow your account.')));
+  if (has) libDraw = lessonRows(recent, () => store.get('lib', []).slice(0, 3), '');
+}
+
+function showCourses() {
+  page('courses', el('h1', {}, 'AP courses'),
+    el('p', { class: 'sub' }, 'Open a class, pick the videos you want, and each one becomes a lesson you can solve.'), tiles());
+}
+
+function showCourse(key) {
+  const c = COURSES.find(x => x.key === key);
+  if (!c) return showCourses();
+  page('courses', el('p', { class: 'note', style: 'margin:0 0 6px' }, el('a', { href: '#courses' }, 'AP courses'), ' / ' + c.tag),
+    el('h1', { style: 'text-align:left' }, c.name),
+    el('p', { style: 'margin:0 0 26px' }, 'Videos by ' + c.by + ' on YouTube. Open a playlist and tick what you want to study.'),
+    el('div', {}, c.lists.map(([title, id]) => {
+      const mount = el('div');
+      const btn = el('button', { class: 'small' }, 'Open');
+      btn.onclick = async () => {
+        if (mount.children.length) return mount.replaceChildren();
+        btn.disabled = true; mount.replaceChildren(el('p', { class: 'note' }, 'Getting the videos...'));
+        try {
+          const vids = await playlistVideos(id);
+          if (!vids.length) throw new Error('empty');
+          pickerInto(mount, vids);
+        } catch { mount.replaceChildren(el('p', { class: 'err' }, "Couldn't open this playlist right now. Try again in a minute.")); }
+        btn.disabled = false;
+      };
+      return el('div', { class: 'plist' }, el('div', { class: 'head' }, el('span', { class: 't' }, title), btn), mount);
+    })));
+}
+
+function showLessons() {
+  const lib = el('div', { class: 'lib' });
+  page('lessons', el('h1', {}, 'My lessons'),
+    el('p', { class: 'sub' }, me() ? 'Saved to your account, so they follow you to any device.' : 'Saved on this device only. Make an account and they follow you everywhere.'),
+    lib,
+    el('p', { class: 'note', style: 'margin-top:18px' }, el('label', { style: 'display:inline;margin:0;text-decoration:underline;cursor:pointer' }, 'Load a lesson file',
       el('input', { type: 'file', accept: '.json,application/json', class: 'hide', onchange: async e => {
         const file = e.target.files[0]; if (!file) return;
         try {
           const j = JSON.parse(await file.text());
           if (!/^[\w-]{11}$/.test(j.id || '')) throw new Error('not a lesson file');
-          saveLesson(j.id, j); await picsSet(j.id, cleanPics(j.frames)); drawLib();
+          saveLesson(j.id, j); await picsSet(j.id, cleanPics(j.frames)); libDraw();
         } catch (err) { alert("Couldn't load that file: " + err.message); }
         e.target.value = '';
-      } })), ' (one that somebody saved and sent you).'),
-    el('p', { class: 'note' }, 'Saved in this browser on this device. Nobody else can see them.'),
-    lib,
-    el('h2', { class: 'mine' }, 'Your account'),
-    syncBox(drawLib),
-    el('p', { class: 'note', style: 'margin-top:18px' }, el('a', { href: '#', onclick: e => { e.preventDefault(); showWelcome(); } }, 'How to set up (walkthrough)'))));
-  window.scrollTo(0, 0);
+      } })), ' that somebody saved and sent you.'));
+  libDraw = lessonRows(lib, () => store.get('lib', []), 'Nothing here yet. Open an AP course or add a video, and your lessons show up here.');
+}
+
+function showAdd() {
+  if (!store.get('key', '')) return page('add', el('h1', {}, 'Add a video'), el('p', { class: 'sub' }, 'One thing first.'), el('div', { class: 'make' }, keyBox(showAdd)));
+  const links = el('textarea', { rows: '3', placeholder: 'https://youtu.be/...  or a playlist link\n(one link per line)', 'aria-label': 'YouTube links' });
+  const extra = el('input', { type: 'text', placeholder: 'e.g. "I am weak at vectors, go slow there" or "add 2 extra practice questions"', 'aria-label': 'Extra instructions' });
+  const status = el('div', { class: 'status', 'aria-live': 'polite' });
+  const picker = el('div');
+  const btn = el('button', { class: 'blue go' }, 'Build my lessons');
+  btn.onclick = async () => {
+    status.replaceChildren(); picker.replaceChildren();
+    const words = links.value.split(/\s+/).filter(Boolean);
+    const lists = [...new Set(words.map(w => (w.match(/[?&]list=([\w-]{10,64})/) || [])[1]).filter(Boolean))];
+    const ids = [...new Set(words.filter(w => !/[?&]list=/.test(w)).map(videoId).filter(Boolean))];
+    if (!ids.length && !lists.length) return status.append(el('p', { class: 'err' }, 'Paste at least one YouTube video or playlist link.'));
+    if (ids.length) { addToQueue(ids.map(id => ({ id })), extra.value.trim()); if (!lists.length) links.value = ''; }
+    if (!lists.length) return;
+    btn.disabled = true; status.append(el('p', {}, 'Reading the playlist...'));
+    try {
+      const vids = [];
+      for (const l of lists) for (const v of await playlistVideos(l)) if (!vids.some(x => x.id === v.id)) vids.push(v);
+      status.replaceChildren();
+      if (!vids.length) status.append(el('p', { class: 'err' }, 'That playlist looks empty or private.'));
+      else pickerInto(picker, vids, () => extra.value.trim(), () => { links.value = ''; });
+    } catch { status.replaceChildren(el('p', { class: 'err' }, "Couldn't open that playlist. Check it is public, or paste the video links one per line.")); }
+    btn.disabled = false;
+  };
+  const qbox = el('div');
+  page('add', el('h1', {}, 'Add a video'),
+    el('p', { class: 'sub' }, 'Paste any YouTube lesson or playlist. About a minute per video.'),
+    el('div', { class: 'make' },
+      el('label', { style: 'margin-top:0' }, 'YouTube video or playlist links'), links,
+      el('label', {}, 'Anything you want added? (optional)'), extra,
+      btn, status, picker,
+      el('p', { class: 'note', style: 'margin-bottom:0' }, 'Works best on videos under about 45 minutes.')),
+    qbox);
+  pageQueue = () => {
+    const q = queue();
+    qbox.replaceChildren();
+    if (!q.length) return;
+    const left = q.filter(x => x.state === 'wait' || x.state === 'work').length;
+    const word = { wait: 'Waiting', work: 'Now', done: 'Done', fail: 'Failed' };
+    qbox.append(el('div', { class: 'queue' },
+      el('b', {}, left ? `Building in the background: ${left} left.` : 'All done.'),
+      left ? el('p', { class: 'note', style: 'margin:4px 0 8px' }, 'Keep this tab open. Finished lessons are ready in My lessons while the rest build.') : null,
+      q.map(x => el('p', { class: 'qrow' + (x.state === 'fail' ? ' err' : '') }, el('b', {}, word[x.state] + ': '),
+        x.state === 'done' ? el('a', { href: '#' + x.id }, x.title || x.id) : (x.title || 'youtu.be/' + x.id), x.note ? ' · ' + x.note : '')),
+      el('div', { class: 'row', style: 'margin-top:10px' },
+        q.some(x => x.state === 'fail') ? el('button', { class: 'small blue', onclick: () => { store.set('queue', queue().map(x => x.state === 'fail' ? { ...x, state: 'wait', note: '' } : x)); queueDraw(); runQueue(); } }, 'Retry failed') : null,
+        q.some(x => x.state === 'wait') ? el('button', { class: 'small', onclick: () => { store.set('queue', queue().filter(x => x.state !== 'wait')); queueDraw(); } }, 'Stop the rest') : null,
+        q.some(x => x.state === 'done' || x.state === 'fail') ? el('button', { class: 'small', onclick: () => { store.set('queue', queue().filter(x => x.state === 'wait' || x.state === 'work')); queueDraw(); } }, 'Clear finished') : null)));
+  };
+  queueDraw();
+}
+
+function showAccount() {
+  page('account', el('h1', {}, 'Account'),
+    el('p', { class: 'sub' }, 'Your name and PIN bring your lessons to any device.'),
+    syncBox(() => {}),
+    label('Your AI key'),
+    el('div', { class: 'make' }, keyBox(showAccount)),
+    el('p', { class: 'note', style: 'margin-top:18px' }, el('a', { href: '#', onclick: e => { e.preventDefault(); showWelcome('new1'); } }, 'Show me the setup steps again')));
 }
 
 // ---------- one lesson
@@ -1029,17 +1193,27 @@ addEventListener('scroll', () => {
 
 function route() {
   const id = decodeURIComponent(location.hash.slice(1));
-  if (!id) return needsWelcome() ? showWelcome() : showHome(false);
+  queueDraw();
+  if (!id) return showHome();
+  if (id === 'courses') return showCourses();
+  if (id.startsWith('course/')) return showCourse(id.slice(7));
+  if (id === 'lessons') return showLessons();
+  if (id === 'add') return showAdd();
+  if (id === 'account') return showAccount();
+  setNav('lessons');
   const v = store.get('v:' + id, null);
   if (v) return picsGet(id).then(p => { pics = withDrawings(v, p); showLesson(v); });
   current = null;
   $('#app').replaceChildren(el('div', { class: 'narrow' }, el('h1', {}, "That lesson isn't on this device."),
-    el('p', { class: 'sub' }, 'Lessons are saved per device. ', el('a', { href: '#' }, 'Build it here'))));
+    el('p', { class: 'sub' }, 'Lessons are saved per device. ', el('a', { href: '#add' }, 'Build it here'))));
 }
 addEventListener('hashchange', route);
 store.set('queue', queue().map(x => x.state === 'work' ? { ...x, state: 'wait', note: '' } : x));
 route();
 runQueue();
+// bring this account's lessons down in the background on every visit
+const bgSync = () => { if (me()) syncAll().then(r => { if (r.down) libDraw(); }).catch(() => {}); };
+syncBox.ran = true; bgSync();
 
 // ---------- full screen screenshots
 const viewer = el('div', { id: 'viewer', class: 'hide', role: 'dialog', 'aria-label': 'Screenshot', tabindex: '-1' });
