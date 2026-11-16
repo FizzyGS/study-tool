@@ -36,6 +36,14 @@
   /* home */
   .make { border: 3px solid #000; padding: 20px; }
   .make .go { margin-top: 16px; width: 100%; font-size: 20px; }
+  .startline { text-align: center; font-weight: 800; font-size: 22px; margin: 0 0 14px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .two button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 22px 14px; font-size: 20px; }
+  .two button span { font-weight: 600; font-size: 14px; }
+  .stepno { font-weight: 800; font-size: 14px; letter-spacing: 1px; margin: 0 0 6px; border-bottom: 4px solid #0cc0df; display: inline-block; }
+  .how { margin: 28px 0 0; padding: 0 0 0 22px; }
+  .how li { margin: 0 0 8px; }
+  @media (max-width: 560px) { .two { grid-template-columns: 1fr; } }
   .status p { margin: 8px 0 0; font-weight: 600; overflow-wrap: anywhere; }
   h2.mine { font-size: 28px; font-weight: 800; margin: 44px 0 8px; }
   .lib .item { display: flex; align-items: center; gap: 12px; border-top: 3px solid #000; padding: 16px 0; }
@@ -263,8 +271,9 @@ async function secretFor(name, pin) {    // slow on purpose, so guessing PINs ta
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(name.toLowerCase() + '|' + pin), 'PBKDF2', false, ['deriveBits']);
   return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode('pause-solve-v1'), iterations: 400000 }, base, 256));
 }
-const getUsers = async () => { try { const j = await (await fetch('v/users.json?t=' + Date.now(), { cache: 'no-store' })).json(); return Array.isArray(j) ? j.map(cleanName).filter(Boolean) : []; } catch { return []; } };
-const helperUp = async () => { try { return (await fetch('http://localhost:4174/ping')).ok; } catch { return false; } };
+const CLOUD = 'https://pause-solve.fizzygs.workers.dev';   // the online store: usernames + locked lesson files. Works with every PC off.
+const cloudErr = async r => { let m = ''; try { m = (await r.json()).error; } catch {} return new Error(m || 'the online store did not answer'); };
+const getUsers = async () => { try { const j = await (await fetch(CLOUD + '/users', { cache: 'no-store' })).json(); return Array.isArray(j.users) ? j.users.map(cleanName).filter(Boolean) : []; } catch { return null; } };
 async function syncKeys(code) {
   const raw = code.replace(/-/g, '');
   return {
@@ -276,21 +285,24 @@ async function seal(k, obj) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k.key, new TextEncoder().encode(JSON.stringify(obj))));
   const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12);
-  let bin = ''; for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
-  return btoa(bin);
+  return out;
 }
-async function cloudGet(k, what) {
+async function cloudGet(k, what, strict) {     // strict: tell "not there" (null) apart from "couldn't ask" (throws)
+  let r;
+  try { r = await fetch(`${CLOUD}/f/${(await k.name(what)).slice(0, 32)}`, { cache: 'no-store' }); }
+  catch { if (strict) throw new Error("can't reach the online store. Check your internet."); return null; }
+  if (r.status === 429 && strict) throw await cloudErr(r);
+  if (!r.ok) return null;
   try {
-    const r = await fetch(`v/${await k.name(what)}?t=${Date.now()}`, { cache: 'no-store' });
-    if (!r.ok) return null;
     const b = new Uint8Array(await r.arrayBuffer());
     return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(0, 12) }, k.key, b.slice(12))));
   } catch { return null; }
 }
-async function cloudPut(k, what, obj) {     // only works on the PC that runs the picture helper
-  const r = await fetch('http://localhost:4174/publish', { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: await k.name(what), data: await seal(k, obj) }) });
-  if (!r.ok) throw new Error('upload failed');
+async function cloudPut(k, what, obj) {
+  let r;
+  try { r = await fetch(`${CLOUD}/f/${(await k.name(what)).slice(0, 32)}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: await seal(k, obj) }); }
+  catch { throw new Error("can't reach the online store. Check your internet."); }
+  if (!r.ok) throw await cloudErr(r);
 }
 const libRow = v => ({ id: v.id, title: v.title });
 async function syncUp(v) {
@@ -315,7 +327,7 @@ async function syncAll(say = () => {}) {
     if (!j) continue;
     saveLesson(row.id, j); await picsSet(row.id, cleanPics(j.frames)); down++;
   }
-  for (const row of store.get('lib', [])) {                 // send up what is only here (PC with the helper only)
+  for (const row of store.get('lib', [])) {                 // send up what is only here
     if (idx.some(x => x.id === row.id)) continue;
     const v = store.get('v:' + row.id, null); if (!v) continue;
     say(`Sending "${row.title}"...`);
@@ -323,7 +335,7 @@ async function syncAll(say = () => {}) {
   }
   return { down, up };
 }
-function syncBox(redraw) {
+function syncBox(redraw, opt = {}) {      // opt: { mode: 'new' | 'old', done, back } when used inside the walkthrough
   const box = el('div', { class: 'make', style: 'margin-top:12px' });
   const msg = el('p', { class: 'note', 'aria-live': 'polite', style: 'margin:10px 0 0' });
   const say = (t, bad) => { msg.className = 'note' + (bad ? ' err' : ''); msg.textContent = t; };
@@ -351,10 +363,12 @@ function syncBox(redraw) {
       if (!/^\d{4}$/.test(pin.value)) return say('The PIN is 4 digits.', true);
       btn.disabled = true; say('Checking...');
       const secret = await secretFor(name, pin.value);
-      const found = await cloudGet(await syncKeys(secret), 'index');
+      let found;
+      try { found = await cloudGet(await syncKeys(secret), 'index', true); }
+      catch (e) { btn.disabled = false; return say(e.message, true); }
       btn.disabled = false;
       if (!found) { pin.value = ''; return say('Wrong PIN. Try again.', true); }
-      store.del('syncIdx'); store.set('me', { name, secret }); draw(); go();
+      store.del('syncIdx'); store.set('me', { name, secret }); if (opt.done) return opt.done(); draw(); go();
     };
     pin.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
     box.replaceChildren(el('b', {}, 'Hi ' + name), el('label', {}, 'Your PIN'), pin,
@@ -376,29 +390,38 @@ function syncBox(redraw) {
       try {
         const secret = await secretFor(n, pin.value);
         const k = await syncKeys(secret);
+        if (((await getUsers()) || []).some(u => u.toLowerCase() === n.toLowerCase())) throw new Error('that username is taken. Pick another.');
         await cloudPut(k, 'index', []);
-        const r = await fetch('http://localhost:4174/publish', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: 'users.json', data: btoa(JSON.stringify([...new Set([...await getUsers(), ...users, n])])) }) });
-        if (!r.ok) throw new Error('could not save the username');
-        store.set('me', { name: n, secret }); store.del('syncIdx'); draw(); go();
+        const r = await fetch(CLOUD + '/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: n }) });
+        if (!r.ok) throw await cloudErr(r);
+        store.set('me', { name: n, secret }); store.del('syncIdx'); if (opt.done) return opt.done(); draw(); go();
       } catch (e) { btn.disabled = false; say("Couldn't create the account: " + e.message, true); }
     };
     box.replaceChildren(el('b', {}, 'New account'), el('label', {}, 'Username'), name, el('label', {}, 'PIN (4 digits, not an easy one)'), pin,
-      el('div', { class: 'row', style: 'margin-top:10px' }, btn, el('button', { class: 'small', onclick: draw }, 'Back')), msg);
+      el('div', { class: 'row', style: 'margin-top:10px' }, btn, el('button', { class: 'small', onclick: opt.mode === 'new' ? opt.back : draw }, 'Back')), msg);
     say(''); name.focus();
   };
 
   const draw = async () => {
     if (me()) return signedIn();
     box.replaceChildren(el('p', { class: 'note', style: 'margin:0' }, 'Looking for accounts...'));
-    const [users, canCreate] = await Promise.all([getUsers(), helperUp()]);
+    const got = await getUsers(), users = got || [];
     if (me()) return signedIn();
+    if (!got) { box.replaceChildren(el('b', {}, 'Accounts'), el('p', { class: 'note' }, "Can't reach the online store right now, so sign-in is off. Everything else works, and your lessons save on this device."),
+      el('div', { class: 'row' }, el('button', { class: 'small', onclick: draw }, 'Try again')), msg); return say(''); }
+    if (opt.mode === 'new') return signUp(users);
+    if (opt.mode === 'old') {
+      box.replaceChildren(el('b', {}, users.length ? 'Pick your name.' : 'No accounts yet.'),
+        users.length ? el('div', { class: 'row', style: 'margin:10px 0' }, users.map(u => el('button', { class: 'small', onclick: () => signIn(u) }, u)))
+          : el('p', { class: 'note' }, 'Nobody has made an account yet. Go back and pick "I\'m new here".'),
+        el('div', { class: 'row' }, el('button', { class: 'small', onclick: opt.back }, 'Back')), msg);
+      return say('');
+    }
     box.replaceChildren(
       el('b', {}, users.length ? 'Already a user? Pick your name.' : 'Accounts'),
       users.length ? el('div', { class: 'row', style: 'margin:10px 0' }, users.map(u => el('button', { class: 'small', onclick: () => signIn(u) }, u))) : null,
-      canCreate
-        ? el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'blue small', onclick: () => signUp(users) }, 'Create an account'))
-        : el('p', { class: 'note' }, users.length ? 'New here? You can use the site without an account, your lessons save on this device. New accounts are made on the home PC where lessons with screenshots get built.' : 'No accounts yet. Accounts are made on the home PC where lessons with screenshots get built.'),
+      el('p', { class: 'note' }, users.length ? 'New here? Make an account and your lessons follow you to any device.' : 'Make an account and your lessons follow you to any device.'),
+      el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'blue small', onclick: () => signUp(users) }, 'Create an account')),
       msg);
     say('');
   };
@@ -612,7 +635,7 @@ async function runQueue() {
         let note = got ? `${got} screenshots` : 'no screenshots (the picture helper is not reachable here)';
         if (syncCode()) {
           try { await syncUp(v); note += ', saved to your account'; }
-          catch { note += ', not saved to your account (that only works on the home PC)'; }
+          catch (e) { note += ', not saved to your account (' + e.message + ')'; }
         }
         setItem(it.id, { state: 'done', note });
         libDraw();
@@ -622,6 +645,65 @@ async function runQueue() {
       }
     }
   } finally { working = false; queueDraw(); }
+}
+
+// ---------- first visit: a short walkthrough
+const needsWelcome = () => !store.get('welcomed', false) && !store.get('key', '') && !store.get('lib', []).length && !me();
+function showWelcome(step = 'start') {
+  current = null;
+  $('#progress').textContent = '';
+  const done = () => { store.set('welcomed', true); showHome(false); };
+  const link = (text, fn) => el('a', { href: '#', onclick: e => { e.preventDefault(); fn(); } }, text);
+  const head = (n, of, title, text) => [el('p', { class: 'stepno' }, `STEP ${n} OF ${of}`), el('h2', { style: 'margin:0 0 8px' }, title), el('p', { style: 'margin:0 0 14px' }, text)];
+  const keyHelp = () => el('ol', { class: 'how', style: 'margin:0 0 6px' },
+    el('li', {}, 'Open ', el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener' }, 'aistudio.google.com/apikey'), ' and sign in with any Google account.'),
+    el('li', {}, 'Tap "Create API key" and copy it.'),
+    el('li', {}, 'Paste it below and hit Save. If your school blocks that page, do this one step at home or on your phone.'));
+  let body;
+  if (step === 'start') body = [
+    el('p', { class: 'sub' }, 'Paste a lesson video. Get it explained step by step, with the questions pulled out so you solve them before you see the working out.'),
+    el('p', { class: 'startline' }, 'Get started below'),
+    el('div', { class: 'two' },
+      el('button', { class: 'blue', onclick: () => showWelcome('new1') }, "I'm new here", el('span', {}, 'Set up in 3 short steps')),
+      el('button', { onclick: () => showWelcome('old1') }, 'I already have an account', el('span', {}, 'Pick your name, type your PIN'))),
+    el('ol', { class: 'how' },
+      el('li', {}, 'You paste a YouTube lesson link.'),
+      el('li', {}, 'The AI watches it and writes the lesson: plain explanations, plus every question the presenter asks.'),
+      el('li', {}, 'You try each question first. Hints if you are stuck, the working out when you are ready.'),
+      el('li', {}, 'Nothing to install. Works in the browser on a phone, iPad or laptop.')),
+  ];
+  if (step === 'new1') body = [
+    ...head(1, 3, 'Make your account', 'A username and a 4 digit PIN. Your lessons then follow you to any device. No email needed.'),
+    syncBox(() => {}, { mode: 'new', done: () => showWelcome('new2'), back: () => showWelcome('start') }),
+    el('p', { class: 'note' }, link('Skip, use it without an account', () => showWelcome('new2')), ' (your lessons then stay on this device only).'),
+  ];
+  if (step === 'new2') body = [
+    ...head(2, 3, 'Get your free AI key', "The AI that watches your videos is Google's Gemini. It is free, you just need your own key."),
+    keyHelp(),
+    el('div', { class: 'make' }, keyBox(() => showWelcome(store.get('key', '') ? 'new3' : 'new2'))),
+    el('p', { class: 'note' }, link('Back', () => showWelcome('new1')), ' · ', link("I'll do this later", done)),
+  ];
+  if (step === 'new3') body = [
+    ...head(3, 3, 'Paste your first video', 'You are set. On the next screen, paste a YouTube lesson link and hit "Build my lessons".'),
+    el('ol', { class: 'how', style: 'margin:0 0 16px' },
+      el('li', {}, 'It takes about a minute per video. Keep the tab open while it builds.'),
+      el('li', {}, 'Your lessons are saved, so you can close the site and come back later.'),
+      el('li', {}, 'Stuck inside a lesson? Open "Ask AI" and ask about anything in it.')),
+    el('button', { class: 'blue go', style: 'width:100%;font-size:20px', onclick: done }, 'Start'),
+  ];
+  if (step === 'old1') body = [
+    ...head(1, 2, 'Sign in', 'Pick your name and type your PIN. Your lessons come to this device.'),
+    syncBox(() => {}, { mode: 'old', done: () => store.get('key', '') ? done() : showWelcome('old2'), back: () => showWelcome('start') }),
+  ];
+  if (step === 'old2') body = [
+    ...head(2, 2, 'Add your AI key on this device', 'You are signed in, your lessons are on their way. Your key is never stored in your account, so paste it once on each device. You only need it to build new lessons or ask the AI.'),
+    keyHelp(),
+    el('div', { class: 'make' }, keyBox(done)),
+    el('p', { class: 'note' }, link('Skip for now', done)),
+  ];
+  $('#app').replaceChildren(el('div', { class: 'narrow' }, el('h1', {}, 'Pause & Solve'), ...body,
+    step === 'start' ? null : el('p', { class: 'note', style: 'text-align:center;margin-top:22px' }, link('Skip the walkthrough', done))));
+  window.scrollTo(0, 0);
 }
 
 function showHome(showKey) {
@@ -744,7 +826,8 @@ function showHome(showKey) {
     el('p', { class: 'note' }, 'Saved in this browser on this device. Nobody else can see them.'),
     lib,
     el('h2', { class: 'mine' }, 'Your account'),
-    syncBox(drawLib)));
+    syncBox(drawLib),
+    el('p', { class: 'note', style: 'margin-top:18px' }, el('a', { href: '#', onclick: e => { e.preventDefault(); showWelcome(); } }, 'How to set up (walkthrough)'))));
   window.scrollTo(0, 0);
 }
 
@@ -917,7 +1000,7 @@ addEventListener('scroll', () => {
 
 function route() {
   const id = decodeURIComponent(location.hash.slice(1));
-  if (!id) return showHome(false);
+  if (!id) return needsWelcome() ? showWelcome() : showHome(false);
   const v = store.get('v:' + id, null);
   if (v) return picsGet(id).then(p => { pics = p; showLesson(v); });
   current = null;
